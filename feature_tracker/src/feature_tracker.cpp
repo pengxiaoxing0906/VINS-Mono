@@ -2,7 +2,7 @@
 
 int FeatureTracker::n_id = 0;
 
-bool inBorder(const cv::Point2f &pt)
+bool inBorder(const cv::Point2f &pt)//判断点是否在图像内
 {
     const int BORDER_SIZE = 1;
     int img_x = cvRound(pt.x);
@@ -10,7 +10,7 @@ bool inBorder(const cv::Point2f &pt)
     return BORDER_SIZE <= img_x && img_x < COL - BORDER_SIZE && BORDER_SIZE <= img_y && img_y < ROW - BORDER_SIZE;
 }
 
-void reduceVector(vector<cv::Point2f> &v, vector<uchar> status)
+void reduceVector(vector<cv::Point2f> &v, vector<uchar> status)//根据状态status进行重组，将staus中为1的对应点对在原点对中保存下来，为0的对应点对去除掉
 {
     int j = 0;
     for (int i = 0; i < int(v.size()); i++)
@@ -44,7 +44,7 @@ void FeatureTracker::setMask()
     
 
     // prefer to keep features that are tracked for long time
-    vector<pair<int, pair<cv::Point2f, int>>> cnt_pts_id;
+    vector<pair<int, pair<cv::Point2f, int>>> cnt_pts_id;//构建复合数据类型，特征点被track次数、特征点、特征点的id
 
     for (unsigned int i = 0; i < forw_pts.size(); i++)
         cnt_pts_id.push_back(make_pair(track_cnt[i], make_pair(forw_pts[i], ids[i])));
@@ -52,7 +52,7 @@ void FeatureTracker::setMask()
     sort(cnt_pts_id.begin(), cnt_pts_id.end(), [](const pair<int, pair<cv::Point2f, int>> &a, const pair<int, pair<cv::Point2f, int>> &b)
          {
             return a.first > b.first;
-         });
+         });//按某个点的跟踪次数由大到小排序
 
     forw_pts.clear();
     ids.clear();
@@ -60,11 +60,12 @@ void FeatureTracker::setMask()
 
     for (auto &it : cnt_pts_id)
     {
-        if (mask.at<uchar>(it.second.first) == 255)
+        if (mask.at<uchar>(it.second.first) == 255)//检测新建的mask在该点是否为255
         {
             forw_pts.push_back(it.second.first);
             ids.push_back(it.second.second);
             track_cnt.push_back(it.first);
+            //图片，点，半径，颜色为0表示在角点检测在该点不起作用,粗细（-1）表示填充
             cv::circle(mask, it.second.first, MIN_DIST, 0, -1);
         }
     }
@@ -148,7 +149,8 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
                 cout << "mask type wrong " << endl;
             if (mask.size() != forw_img.size())
                 cout << "wrong size " << endl;
-            cv::goodFeaturesToTrack(forw_img, n_pts, MAX_CNT - forw_pts.size(), 0.01, MIN_DIST, mask);//角点检测 MAX_CNT=150
+            //cv::goodFeaturesToTrack(forw_img, n_pts, MAX_CNT - forw_pts.size(), 0.01, MIN_DIST, mask,3,false);提取shi Tomas角点，3为使用的领域数
+            cv::goodFeaturesToTrack(forw_img, n_pts, MAX_CNT - forw_pts.size(), 0.01, MIN_DIST, mask);//角点检测 MAX_CNT=150,false检测shi-Tomas角点 true检测harris角点
         }
         else
             n_pts.clear();
@@ -164,7 +166,7 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
     prev_un_pts = cur_un_pts;//在第一帧中不做处理
     cur_img = forw_img;//将当前帧赋值给上一帧
     cur_pts = forw_pts;
-    undistortedPoints();
+    undistortedPoints();//从第二张图像输入后每进行一次循环，最后还需要对匹配的特征点对进行畸变矫正
     prev_time = cur_time;
 }
 
@@ -181,7 +183,7 @@ void FeatureTracker::rejectWithF()
             m_camera->liftProjective(Eigen::Vector2d(cur_pts[i].x, cur_pts[i].y), tmp_p);
             tmp_p.x() = FOCAL_LENGTH * tmp_p.x() / tmp_p.z() + COL / 2.0;
             tmp_p.y() = FOCAL_LENGTH * tmp_p.y() / tmp_p.z() + ROW / 2.0;
-            un_cur_pts[i] = cv::Point2f(tmp_p.x(), tmp_p.y());
+            un_cur_pts[i] = cv::Point2f(tmp_p.x(), tmp_p.y());//转化成像素坐标
 
             m_camera->liftProjective(Eigen::Vector2d(forw_pts[i].x, forw_pts[i].y), tmp_p);
             tmp_p.x() = FOCAL_LENGTH * tmp_p.x() / tmp_p.z() + COL / 2.0;
