@@ -27,7 +27,7 @@ bool init_pub = 0;
 
 void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
 {
-    if(first_image_flag)
+    if(first_image_flag)//首先是true
     {
         first_image_flag = false;
         first_image_time = img_msg->header.stamp.toSec();
@@ -48,10 +48,10 @@ void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
     }
     last_image_time = img_msg->header.stamp.toSec();
     // frequency control
-    if (round(1.0 * pub_count / (img_msg->header.stamp.toSec() - first_image_time)) <= FREQ)
+    if (round(1.0 * pub_count / (img_msg->header.stamp.toSec() - first_image_time)) <= FREQ)//FREQ=10hz
     {
         PUB_THIS_FRAME = true;
-        // reset the frequency control
+        // reset the frequency control,pub_count=1
         if (abs(1.0 * pub_count / (img_msg->header.stamp.toSec() - first_image_time) - FREQ) < 0.01 * FREQ)
         {
             first_image_time = img_msg->header.stamp.toSec();
@@ -79,14 +79,14 @@ void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
 
     cv::Mat show_img = ptr->image;
     TicToc t_r;
-    for (int i = 0; i < NUM_OF_CAM; i++)
+    for (int i = 0; i < NUM_OF_CAM; i++)  //NUM_OF_CAM默认为1
     {
         ROS_DEBUG("processing camera %d", i);
-        if (i != 1 || !STEREO_TRACK)
-            trackerData[i].readImage(ptr->image.rowRange(ROW * i, ROW * (i + 1)), img_msg->header.stamp.toSec());
+        if (i != 1 || !STEREO_TRACK) //STEREO_TRACK默认为false
+            trackerData[i].readImage(ptr->image.rowRange(ROW * i, ROW * (i + 1)), img_msg->header.stamp.toSec());//ROW为图像的height
         else
         {
-            if (EQUALIZE)
+            if (EQUALIZE)//默认为1,均衡化
             {
                 cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE();
                 clahe->apply(ptr->image.rowRange(ROW * i, ROW * (i + 1)), trackerData[i].cur_img);
@@ -172,7 +172,7 @@ void img_callback(const sensor_msgs::ImageConstPtr &img_msg)
 
             for (int i = 0; i < NUM_OF_CAM; i++)
             {
-                cv::Mat tmp_img = stereo_img.rowRange(i * ROW, (i + 1) * ROW);
+                cv::Mat tmp_img = stereo_img.rowRange(i * ROW, (i + 1) * ROW);//Mat的rowRange和colRange函数可以获取某些范围内行或列的指针
                 cv::cvtColor(show_img, tmp_img, CV_GRAY2RGB);
 
                 for (unsigned int j = 0; j < trackerData[i].cur_pts.size(); j++)
@@ -210,7 +210,7 @@ int main(int argc, char **argv)
     ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Info);
     readParameters(n);
 
-    for (int i = 0; i < NUM_OF_CAM; i++)
+    for (int i = 0; i < NUM_OF_CAM; i++) //NUM_OF_CAM=1 意味着这里就循环一次
         trackerData[i].readIntrinsicParameter(CAM_NAMES[i]);
 
     if(FISHEYE)
@@ -228,7 +228,7 @@ int main(int argc, char **argv)
         }
     }
 
-    ros::Subscriber sub_img = n.subscribe(IMAGE_TOPIC, 100, img_callback);
+    ros::Subscriber sub_img = n.subscribe(IMAGE_TOPIC, 100, img_callback);//当订阅的topic有新的信息时，激活回调函数
 
     pub_img = n.advertise<sensor_msgs::PointCloud>("feature", 1000);
     pub_match = n.advertise<sensor_msgs::Image>("feature_img",1000);
@@ -237,7 +237,7 @@ int main(int argc, char **argv)
     if (SHOW_TRACK)
         cv::namedWindow("vis", cv::WINDOW_NORMAL);
     */
-    ros::spin();
+    ros::spin();//ros::spin() 在调用后不会再返回，也就是主程序到这儿就不往下执行了
     return 0;
 }
 

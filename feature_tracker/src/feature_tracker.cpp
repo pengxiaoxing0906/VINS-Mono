@@ -32,6 +32,8 @@ void reduceVector(vector<int> &v, vector<uchar> status)
 FeatureTracker::FeatureTracker()
 {
 }
+//setMask()作用：对跟踪到的特征点对依据跟踪次数进行从多到少的排序，并放到原集合中
+//在已跟踪到角点的位置上，将mask对应位置上设为0，意为在cv::goodFeaturesToTrack(forw_img, n_pts, MAX_CNT - forw_pts.size(), 0.01, MIN_DIST, mask);进行操作时在该点不再重复进行角点检测，这样可以使角点分布更加均匀。
 
 void FeatureTracker::setMask()
 {
@@ -84,7 +86,7 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
     TicToc t_r;
     cur_time = _cur_time;
 
-    if (EQUALIZE)
+    if (EQUALIZE)//均衡化增强对比度 默认值为1
     {
         cv::Ptr<cv::CLAHE> clahe = cv::createCLAHE(3.0, cv::Size(8, 8));
         TicToc t_c;
@@ -110,12 +112,12 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
         TicToc t_o;
         vector<uchar> status;
         vector<float> err;
-        cv::calcOpticalFlowPyrLK(cur_img, forw_img, cur_pts, forw_pts, status, err, cv::Size(21, 21), 3);
+        cv::calcOpticalFlowPyrLK(cur_img, forw_img, cur_pts, forw_pts, status, err, cv::Size(21, 21), 3);//输入图像2张 输出点 forw_img表示在当前图像中跟踪成功的点的集合，status表示 cur_pts和forw_pts中对应点对是否跟踪成功
 
-        for (int i = 0; i < int(forw_pts.size()); i++)
+        for (int i = 0; i < int(forw_pts.size()); i++)//光流跟踪结束后，判断跟踪成功的角点是否都在图像内
             if (status[i] && !inBorder(forw_pts[i]))
                 status[i] = 0;
-        reduceVector(prev_pts, status);
+        reduceVector(prev_pts, status);//根据状态status进行重组，将staus中为1的对应点对在原点对中保存下来，为0的对应点对去除掉
         reduceVector(cur_pts, status);
         reduceVector(forw_pts, status);
         reduceVector(ids, status);
@@ -123,8 +125,8 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
         reduceVector(track_cnt, status);
         ROS_DEBUG("temporal optical flow costs: %fms", t_o.toc());
     }
-
-    for (auto &n : track_cnt)
+//将track_cnt中的每个数进行加一处理，代表又跟踪了一次
+    for (auto &n : track_cnt)//track_cnt为每个角点的跟踪次数
         n++;
 
     if (PUB_THIS_FRAME)
@@ -146,7 +148,7 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
                 cout << "mask type wrong " << endl;
             if (mask.size() != forw_img.size())
                 cout << "wrong size " << endl;
-            cv::goodFeaturesToTrack(forw_img, n_pts, MAX_CNT - forw_pts.size(), 0.01, MIN_DIST, mask);
+            cv::goodFeaturesToTrack(forw_img, n_pts, MAX_CNT - forw_pts.size(), 0.01, MIN_DIST, mask);//角点检测 MAX_CNT=150
         }
         else
             n_pts.clear();
@@ -154,13 +156,13 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
 
         ROS_DEBUG("add feature begins");
         TicToc t_a;
-        addPoints();
+        addPoints();//将n_pts中的角点放到forw_pts中
         ROS_DEBUG("selectFeature costs: %fms", t_a.toc());
     }
-    prev_img = cur_img;
-    prev_pts = cur_pts;
-    prev_un_pts = cur_un_pts;
-    cur_img = forw_img;
+    prev_img = cur_img;//在第一帧处理中还是等于当前帧forw_img
+    prev_pts = cur_pts;//在第一帧中不做处理
+    prev_un_pts = cur_un_pts;//在第一帧中不做处理
+    cur_img = forw_img;//将当前帧赋值给上一帧
     cur_pts = forw_pts;
     undistortedPoints();
     prev_time = cur_time;
