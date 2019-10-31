@@ -51,10 +51,10 @@ void readParameters(ros::NodeHandle &n)
 
     fsSettings["imu_topic"] >> IMU_TOPIC;
 
-    SOLVER_TIME = fsSettings["max_solver_time"];
-    NUM_ITERATIONS = fsSettings["max_num_iterations"];
-    MIN_PARALLAX = fsSettings["keyframe_parallax"];
-    MIN_PARALLAX = MIN_PARALLAX / FOCAL_LENGTH;
+    SOLVER_TIME = fsSettings["max_solver_time"];//solver的最大迭代时间0.04ms
+    NUM_ITERATIONS = fsSettings["max_num_iterations"];//最大迭代次数8
+    MIN_PARALLAX = fsSettings["keyframe_parallax"];//keyframe selection threshold 10(pixel)
+    MIN_PARALLAX = MIN_PARALLAX / FOCAL_LENGTH;//没看懂这是用来干嘛的
 
     std::string OUTPUT_PATH;
     fsSettings["output_path"] >> OUTPUT_PATH;
@@ -67,11 +67,11 @@ void readParameters(ros::NodeHandle &n)
     std::ofstream fout(VINS_RESULT_PATH, std::ios::out);
     fout.close();
 
-    ACC_N = fsSettings["acc_n"];
-    ACC_W = fsSettings["acc_w"];
-    GYR_N = fsSettings["gyr_n"];
-    GYR_W = fsSettings["gyr_w"];
-    G.z() = fsSettings["g_norm"];
+    ACC_N = fsSettings["acc_n"];//加速度计的noise
+    ACC_W = fsSettings["acc_w"];//加速度计的bias
+    GYR_N = fsSettings["gyr_n"];//陀螺仪的noise
+    GYR_W = fsSettings["gyr_w"];//陀螺仪的bias
+    G.z() = fsSettings["g_norm"];//重力
     ROW = fsSettings["image_height"];
     COL = fsSettings["image_width"];
     ROS_INFO("ROW: %f COL: %f ", ROW, COL);
@@ -100,10 +100,10 @@ void readParameters(ros::NodeHandle &n)
         fsSettings["extrinsicTranslation"] >> cv_T;
         Eigen::Matrix3d eigen_R;
         Eigen::Vector3d eigen_T;
-        cv::cv2eigen(cv_R, eigen_R);
+        cv::cv2eigen(cv_R, eigen_R);//opencv的数据结构转eigen
         cv::cv2eigen(cv_T, eigen_T);
         Eigen::Quaterniond Q(eigen_R);
-        eigen_R = Q.normalized();
+        eigen_R = Q.normalized();//四元数归一化咋就转成Matrix3d啦？
         RIC.push_back(eigen_R);
         TIC.push_back(eigen_T);
         ROS_INFO_STREAM("Extrinsic_R : " << std::endl << RIC[0]);
@@ -115,17 +115,17 @@ void readParameters(ros::NodeHandle &n)
     BIAS_ACC_THRESHOLD = 0.1;
     BIAS_GYR_THRESHOLD = 0.1;
 
-    TD = fsSettings["td"];
-    ESTIMATE_TD = fsSettings["estimate_td"];
+    TD = fsSettings["td"];//0 initial value of time offset. unit: s. readed image clock + td = real image clock (IMU clock)
+    ESTIMATE_TD = fsSettings["estimate_td"];//0 意义是啥 怎么用？
     if (ESTIMATE_TD)
         ROS_INFO_STREAM("Unsynchronized sensors, online estimate time offset, initial td: " << TD);
     else
         ROS_INFO_STREAM("Synchronized sensors, fix time offset: " << TD);
 
-    ROLLING_SHUTTER = fsSettings["rolling_shutter"];
+    ROLLING_SHUTTER = fsSettings["rolling_shutter"];//0是全局快门，1是卷帘快门
     if (ROLLING_SHUTTER)
     {
-        TR = fsSettings["rolling_shutter_tr"];
+        TR = fsSettings["rolling_shutter_tr"];//这个时间默认设置的是0
         ROS_INFO_STREAM("rolling shutter camera, read out time per line: " << TR);
     }
     else
