@@ -8,12 +8,12 @@ Estimator::Estimator(): f_manager{Rs}
 
 void Estimator::setParameter()
 {
-    for (int i = 0; i < NUM_OF_CAM; i++)
+    for (int i = 0; i < NUM_OF_CAM; i++)//NUM_OF_CAM=1
     {
         tic[i] = TIC[i];
         ric[i] = RIC[i];
     }
-    f_manager.setRic(ric);
+    f_manager.setRic(ric);//  FeatureManager f_manager 是一个实例
     ProjectionFactor::sqrt_info = FOCAL_LENGTH / 1.5 * Matrix2d::Identity();
     ProjectionTdFactor::sqrt_info = FOCAL_LENGTH / 1.5 * Matrix2d::Identity();
     td = TD;
@@ -116,7 +116,8 @@ void Estimator::processIMU(double dt, const Vector3d &linear_acceleration, const
     acc_0 = linear_acceleration;
     gyr_0 = angular_velocity;
 }
-
+//map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> image
+// 作用是建立每个特征点(camera_id,[x,y,z,u,v,vx,vy])构成的map，索引为feature_id
 void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header)
 {
     ROS_DEBUG("new image coming ------------------------------------------");

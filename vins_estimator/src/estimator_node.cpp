@@ -17,12 +17,12 @@ Estimator estimator;
 
 std::condition_variable con;//当 std::condition_variable 对象的某个 wait 函数被调用的时候，它使用 std::unique_lock(通过 std::mutex) 来锁住当前线程。当前线程会一直被阻塞，直到另外一个线程在相同的 std::condition_variable 对象上调用了 notification 函数来唤醒当前线程
 double current_time = -1;
-queue<sensor_msgs::ImuConstPtr> imu_buf;
+queue<sensor_msgs::ImuConstPtr> imu_buf;//队列是一种线性表，先进先出，入队imu_buf.push(),出队:imu_buf.pop()
 queue<sensor_msgs::PointCloudConstPtr> feature_buf;
 queue<sensor_msgs::PointCloudConstPtr> relo_buf;
 int sum_of_wait = 0;
 
-std::mutex m_buf;
+std::mutex m_buf;//互斥锁用来保证一段时间内只有一个线程在执行一段代码
 std::mutex m_state;
 std::mutex i_buf;
 std::mutex m_estimator;
@@ -42,7 +42,7 @@ double last_imu_t = 0;
 void predict(const sensor_msgs::ImuConstPtr &imu_msg)
 {
     double t = imu_msg->header.stamp.toSec();
-    if (init_imu)
+    if (init_imu) //if语句里的return，使程序跳出if所在的函数，返回到母函数中继续执行。
     {
         latest_time = t;
         init_imu = 0;
@@ -61,10 +61,10 @@ void predict(const sensor_msgs::ImuConstPtr &imu_msg)
     double rz = imu_msg->angular_velocity.z;
     Eigen::Vector3d angular_velocity{rx, ry, rz};
 
-    Eigen::Vector3d un_acc_0 = tmp_Q * (acc_0 - tmp_Ba) - estimator.g;
+    Eigen::Vector3d un_acc_0 = tmp_Q * (acc_0 - tmp_Ba) - estimator.g;//a理想值=R(a测量值-Ba)-g  w理想值=w测量值-BW
 
-    Eigen::Vector3d un_gyr = 0.5 * (gyr_0 + angular_velocity) - tmp_Bg;
-    tmp_Q = tmp_Q * Utility::deltaQ(un_gyr * dt);
+    Eigen::Vector3d un_gyr = 0.5 * (gyr_0 + angular_velocity) - tmp_Bg;//中值法：取k时刻和k+1时刻的角速度再除2
+    tmp_Q = tmp_Q * Utility::deltaQ(un_gyr * dt);//旋转的更新
 
     Eigen::Vector3d un_acc_1 = tmp_Q * (linear_acceleration - tmp_Ba) - estimator.g;
 
@@ -73,7 +73,7 @@ void predict(const sensor_msgs::ImuConstPtr &imu_msg)
     tmp_P = tmp_P + dt * tmp_V + 0.5 * dt * dt * un_acc;
     tmp_V = tmp_V + dt * un_acc;
 
-    acc_0 = linear_acceleration;
+    acc_0 = linear_acceleration;//迭代赋值
     gyr_0 = angular_velocity;
 }
 
@@ -81,20 +81,22 @@ void update()
 {
     TicToc t_predict;
     latest_time = current_time;
-    tmp_P = estimator.Ps[WINDOW_SIZE];
-    tmp_Q = estimator.Rs[WINDOW_SIZE];
-    tmp_V = estimator.Vs[WINDOW_SIZE];
-    tmp_Ba = estimator.Bas[WINDOW_SIZE];
-    tmp_Bg = estimator.Bgs[WINDOW_SIZE];
+    tmp_P = estimator.Ps[WINDOW_SIZE];//vector3d类型
+    tmp_Q = estimator.Rs[WINDOW_SIZE];//vector3d类型
+    tmp_V = estimator.Vs[WINDOW_SIZE];//vector3d类型
+    tmp_Ba = estimator.Bas[WINDOW_SIZE];//vector3d类型
+    tmp_Bg = estimator.Bgs[WINDOW_SIZE];//vector3d类型
     acc_0 = estimator.acc_0;
     gyr_0 = estimator.gyr_0;
 
     queue<sensor_msgs::ImuConstPtr> tmp_imu_buf = imu_buf;
-    for (sensor_msgs::ImuConstPtr tmp_imu_msg; !tmp_imu_buf.empty(); tmp_imu_buf.pop())
-        predict(tmp_imu_buf.front());
+    for (sensor_msgs::ImuConstPtr tmp_imu_msg; !tmp_imu_buf.empty(); tmp_imu_buf.pop())//pop是出队，队列先进先出
+        predict(tmp_imu_buf.front());//front指队首指针
 
 }
-
+//getMeasurements()函数将对imu和图像数据进行初步对齐得到的数据结构，确保图像关联着对应时间戳内的所有IMU数据
+//sensor_msgs::PointCloudConstPtr 表示某一帧图像的feature_points
+//std::vector<sensor_msgs::ImuConstPtr> 表示当前帧和上一帧时间间隔中的所有IMU数据
 std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>>
 getMeasurements()
 {
@@ -137,20 +139,20 @@ getMeasurements()
 
 void imu_callback(const sensor_msgs::ImuConstPtr &imu_msg)
 {
-    if (imu_msg->header.stamp.toSec() <= last_imu_t)
+    if (imu_msg->header.stamp.toSec() <= last_imu_t)//初值last_imu_t=0
     {
         ROS_WARN("imu message in disorder!");
         return;
     }
     last_imu_t = imu_msg->header.stamp.toSec();
 
-    m_buf.lock();
-    imu_buf.push(imu_msg);
+    m_buf.lock();//是个锁，但不知道具体表示啥意思
+    imu_buf.push(imu_msg);//将IMU数据保存到imu_buf中，同时执行con.notify_one();唤醒作用于process线程中的获取观测值数据的函数
     m_buf.unlock();
     con.notify_one();
 
     last_imu_t = imu_msg->header.stamp.toSec();
-
+//这个括弧是啥写法？
     {
         std::lock_guard<std::mutex> lg(m_state);
         predict(imu_msg);
@@ -357,7 +359,7 @@ int main(int argc, char **argv)
     ros::Subscriber sub_restart = n.subscribe("/feature_tracker/restart", 2000, restart_callback);
     ros::Subscriber sub_relo_points = n.subscribe("/pose_graph/match_points", 2000, relocalization_callback);
 
-    std::thread measurement_process{process};
+    std::thread measurement_process{process};//创建线程measurement_process对象，一创建线程对象就启动线程 运行process
     ros::spin();
 
     return 0;
