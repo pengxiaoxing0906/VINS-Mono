@@ -96,8 +96,8 @@ void readParameters(ros::NodeHandle &n)
             ROS_WARN(" fix extrinsic param ");
 
         cv::Mat cv_R, cv_T;
-        fsSettings["extrinsicRotation"] >> cv_R;
-        fsSettings["extrinsicTranslation"] >> cv_T;
+        fsSettings["extrinsicRotation"] >> cv_R;//imu与camera的旋转外参
+        fsSettings["extrinsicTranslation"] >> cv_T;//imu与camera的平移外参
         Eigen::Matrix3d eigen_R;
         Eigen::Vector3d eigen_T;
         cv::cv2eigen(cv_R, eigen_R);//opencv的数据结构转eigen
