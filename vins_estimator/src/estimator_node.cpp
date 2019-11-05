@@ -94,7 +94,10 @@ void update()
         predict(tmp_imu_buf.front());//front指队首指针
 
 }
-//getMeasurements()函数将对imu和图像数据进行初步对齐得到的数据结构，确保图像关联着对应时间戳内的所有IMU数据
+//getMeasurements函数主要工作就是将接收到的IMU数据和相关的图像数据进行“时间上的对齐”，
+// 并将对齐的IMU数据和图像数据进行组合供后边IMU和图像数据处理的时候使用。
+// 由于IMU的更新频率比相机要高出好多，所以和一帧图像时间上“对齐”的IMU数据是一个vector类型的容器中存放的IMU数据
+
 //sensor_msgs::PointCloudConstPtr 表示某一帧图像的feature_points
 //std::vector<sensor_msgs::ImuConstPtr> 表示当前帧和上一帧时间间隔中的所有IMU数据
 std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>>
@@ -104,34 +107,43 @@ getMeasurements()
 
     while (true)
     {
+        //imu信息接收到后会在imu_callback回调中存入imu_buf，feature消息收到后会在feature_callback中存入feature_buf中
         if (imu_buf.empty() || feature_buf.empty())
             return measurements;
-
+        //下面两个if判断都是对imu数据和image数据在时间戳上的判断（时间要对齐才能进行组合）
+        //imu_buf中最后一个imu消息的时间戳比feature_buf中第一个feature消息的时间戳还要小，说明imu数据发出来太早了
         if (!(imu_buf.back()->header.stamp.toSec() > feature_buf.front()->header.stamp.toSec() + estimator.td))
         {
             //ROS_WARN("wait for imu, only should happen at the beginning");
+            //imu数据比图像数据要早，所以返回，等待时间上和图像对齐的imu数据到来  为什么不直接把这些imu的数据从imu_buf里丢掉了？这里等，这些数据还在imu_buf里啊
             sum_of_wait++;
             return measurements;
         }
-
+        //imu_buf中第一个数据的时间戳比feature_buf的第一个数据的时间戳还要大
         if (!(imu_buf.front()->header.stamp.toSec() < feature_buf.front()->header.stamp.toSec() + estimator.td))
         {
             ROS_WARN("throw img, only should happen at the beginning");
+            //imu数据比图像数据滞后，所以图像数据要出队列
             feature_buf.pop();
             continue;
         }
+        //获取队列头部的图像数据，也就是最早发布的图像数据
         sensor_msgs::PointCloudConstPtr img_msg = feature_buf.front();
         feature_buf.pop();
 
-        std::vector<sensor_msgs::ImuConstPtr> IMUs;
+        std::vector<sensor_msgs::ImuConstPtr> IMUs;//两帧图像之间有很多imu，所以用vector
+        //imu_buf的最前边的数据时间戳小于图像数据的时间戳的话，就将imu_buf中最前边的数据存入IMUs当中
         while (imu_buf.front()->header.stamp.toSec() < img_msg->header.stamp.toSec() + estimator.td)
         {
+            //将imu_buf中最上边的元素插入到IMUs的尾部
             IMUs.emplace_back(imu_buf.front());
             imu_buf.pop();
         }
-        IMUs.emplace_back(imu_buf.front());
+        IMUs.emplace_back(imu_buf.front());//这里没有pop?
         if (IMUs.empty())
             ROS_WARN("no imu between two image");
+        //将和该img_msg时间上“对齐”的imu数据连同该img_msg放入measurements的尾部
+        //所以这里的measurements中存放的就是在时间上“对齐”的IMU数据和图像数据
         measurements.emplace_back(IMUs, img_msg);
     }
     return measurements;
@@ -214,7 +226,7 @@ void process()
     {
         std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>> measurements;
         std::unique_lock<std::mutex> lk(m_buf);
-        //只有当 pred 条件为 false 时调用 wait() 才会阻塞当前线程，这里为lambda表达式的返回值，并且在收到其他线程的通知后只有当 pred 为 true 时才会被解除阻塞
+        //只有当 getMeasurements()).size() = 0时wait() 阻塞当前线程，并且在收到imucallback,imagecallback的通知后getMeasurements()).size() != 0即有数据时时才会被解除阻塞
         con.wait(lk, [&]
                  {
             return (measurements = getMeasurements()).size() != 0;
@@ -232,6 +244,7 @@ void process()
  * */
         lk.unlock();
         m_estimator.lock();
+        //遍历measurements，其实就是遍历获取每一个img_msg和其对应的imu_msg对数据进行处理
         for (auto &measurement : measurements)
         {
             auto img_msg = measurement.second;
@@ -240,24 +253,28 @@ void process()
             {
                 double t = imu_msg->header.stamp.toSec();
                 double img_t = img_msg->header.stamp.toSec() + estimator.td;
-                if (t <= img_t)
-                { 
+                if (t <= img_t)//imu的数据比图像数据早到
+                {
+                    //第一次的时候current_time值为-1
                     if (current_time < 0)
-                        current_time = t;
+                        current_time = t;//imu的采样时间
                     double dt = t - current_time;
                     ROS_ASSERT(dt >= 0);
                     current_time = t;
+                    //dx,dy,dz分别是IMU在三个轴方向上的线加速度
                     dx = imu_msg->linear_acceleration.x;
                     dy = imu_msg->linear_acceleration.y;
                     dz = imu_msg->linear_acceleration.z;
+                    //rx,ry,rz分别是IMU在三个轴方向上的角速度
                     rx = imu_msg->angular_velocity.x;
                     ry = imu_msg->angular_velocity.y;
                     rz = imu_msg->angular_velocity.z;
+                    //对每一个IMU值进行预积分
                     estimator.processIMU(dt, Vector3d(dx, dy, dz), Vector3d(rx, ry, rz));
                     //printf("imu: dt:%f a: %f %f %f w: %f %f %f\n",dt, dx, dy, dz, rx, ry, rz);
 
                 }
-                else
+                else//图像数据比IMU数据早到,,为什么要这么分啊？
                 {
                     double dt_1 = img_t - current_time;
                     double dt_2 = t - img_t;
@@ -273,12 +290,13 @@ void process()
                     rx = w1 * rx + w2 * imu_msg->angular_velocity.x;
                     ry = w1 * ry + w2 * imu_msg->angular_velocity.y;
                     rz = w1 * rz + w2 * imu_msg->angular_velocity.z;
+                    //对每一个IMU值进行预积分
                     estimator.processIMU(dt_1, Vector3d(dx, dy, dz), Vector3d(rx, ry, rz));
                     //printf("dimu: dt:%f a: %f %f %f w: %f %f %f\n",dt_1, dx, dy, dz, rx, ry, rz);
                 }
             }
             // set relocalization frame
-            sensor_msgs::PointCloudConstPtr relo_msg = NULL;
+            sensor_msgs::PointCloudConstPtr relo_msg = NULL;//去看传感器数据的definition
             while (!relo_buf.empty())
             {
                 relo_msg = relo_buf.front();
@@ -288,6 +306,7 @@ void process()
             {
                 vector<Vector3d> match_points;
                 double frame_stamp = relo_msg->header.stamp.toSec();
+                //遍历relo_msg中的points特征点
                 for (unsigned int i = 0; i < relo_msg->points.size(); i++)
                 {
                     Vector3d u_v_id;
@@ -296,6 +315,8 @@ void process()
                     u_v_id.z() = relo_msg->points[i].z;
                     match_points.push_back(u_v_id);
                 }
+                //[重定位帧的平移向量T的x,y,z，旋转四元数w,x,y,z和索引值]
+
                 Vector3d relo_t(relo_msg->channels[0].values[0], relo_msg->channels[0].values[1], relo_msg->channels[0].values[2]);//平移
                 Quaterniond relo_q(relo_msg->channels[0].values[3], relo_msg->channels[0].values[4], relo_msg->channels[0].values[5], relo_msg->channels[0].values[6]);//四元数表示的旋转
                 Matrix3d relo_r = relo_q.toRotationMatrix();
@@ -308,16 +329,20 @@ void process()
 
             TicToc t_s;
             map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> image;
+            //遍历img_msg中的特征点
             for (unsigned int i = 0; i < img_msg->points.size(); i++)
             {
                 int v = img_msg->channels[0].values[i] + 0.5;
                 int feature_id = v / NUM_OF_CAM;//这是什么操作？
                 int camera_id = v % NUM_OF_CAM;
+                //获取img_msg中第i个点的x,y,z坐标，这个是归一化后的坐标值
                 double x = img_msg->points[i].x;
                 double y = img_msg->points[i].y;
                 double z = img_msg->points[i].z;
+                //获取像素的坐标值
                 double p_u = img_msg->channels[1].values[i];
                 double p_v = img_msg->channels[2].values[i];
+                //获取像素点在x,y方向上的速度
                 double velocity_x = img_msg->channels[3].values[i];
                 double velocity_y = img_msg->channels[4].values[i];
                 ROS_ASSERT(z == 1);
@@ -331,12 +356,17 @@ void process()
             printStatistics(estimator, whole_t);
             std_msgs::Header header = img_msg->header;
             header.frame_id = "world";
-
+            //给Rviz发送里程计信息：odometry、path、relo_path这几个topic
             pubOdometry(estimator, header);
+            //给Rviz发送关键点位置
             pubKeyPoses(estimator, header);
+            //给Rviz发送相机位置
             pubCameraPose(estimator, header);
+            //给Rviz发送点云数据
             pubPointCloud(estimator, header);
+            //发布tf转换topic
             pubTF(estimator, header);
+            //发送关键帧信息
             pubKeyframe(estimator);
             if (relo_msg != NULL)
                 pubRelocalization(estimator);
