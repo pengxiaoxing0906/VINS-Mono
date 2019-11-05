@@ -48,6 +48,8 @@ void predict(const sensor_msgs::ImuConstPtr &imu_msg)
         init_imu = 0;
         return;
     }
+}
+//计算当前imu_msg距离上一个imu_msg的时间间隔
     double dt = t - latest_time;
     latest_time = t;
 
@@ -76,7 +78,7 @@ void predict(const sensor_msgs::ImuConstPtr &imu_msg)
     acc_0 = linear_acceleration;//迭代赋值
     gyr_0 = angular_velocity;
 }
-
+//得到窗口最后一个图像帧的imu项[P,Q,V,ba,bg,a,g]，对imu_buf中剩余imu_msg进行PVQ递推
 void update()
 {
     TicToc t_predict;
@@ -249,10 +251,14 @@ void process()
         {
             auto img_msg = measurement.second;
             double dx = 0, dy = 0, dz = 0, rx = 0, ry = 0, rz = 0;
+            //遍历和当前img_msg时间上“对齐”的IMU数据
             for (auto &imu_msg : measurement.first)
             {
                 double t = imu_msg->header.stamp.toSec();
                 double img_t = img_msg->header.stamp.toSec() + estimator.td;
+                //由于一帧image图像消息对应多个IMU消息，所以针对每一个IMU消息的时间戳，
+                // 需要判断IMU的时间戳和image消息的时间戳之间的大小关系，也就是需要判断IMU消息早于image消息先收到，
+                // 还是IMU消息晚于image消息收到。
                 if (t <= img_t)//imu的数据比图像数据早到
                 {
                     //第一次的时候current_time值为-1
