@@ -1,6 +1,6 @@
 #include "utility.h"
 
-Eigen::Matrix3d Utility::g2R(const Eigen::Vector3d &g)
+Eigen::Matrix3d Utility::g2R(const Eigen::Vector3d &g)//向量转四元数 转旋转矩阵 转欧拉角 更新旋转矩阵
 {
     Eigen::Matrix3d R0;
     Eigen::Vector3d ng1 = g.normalized();

@@ -13,8 +13,9 @@ class Utility
 {
   public:
     template <typename Derived>
-    static Eigen::Quaternion<typename Derived::Scalar> deltaQ(const Eigen::MatrixBase<Derived> &theta)
+    static Eigen::Quaternion<typename Derived::Scalar> deltaQ(const Eigen::MatrixBase<Derived> &theta)//旋转增量deltaQ转四元数dq
     {
+        //The quaternion class used to represent 3D orientations and rotations
         typedef typename Derived::Scalar Scalar_t;
 
         Eigen::Quaternion<Scalar_t> dq;
@@ -26,9 +27,13 @@ class Utility
         dq.z() = half_theta.z();
         return dq;
     }
+    //未加static前缀的全局变量和函数都具有全局可见性，其它的源文件也能访问,加了static，只有在同一个文件中才能访问这个变量或函数，并且可以在不同的文件中定义同名函数和同名变量，而不必担心命名冲突
+    //* static_cast <type-id>( expression )
+    //该运算符把expression转换为type-id类型，但没有运行时类型检查来保证转换的安全性。派生类的指针或引用转基类就不安全
+    //注意：static_cast不能转换掉expression的const、volatile、或者__unaligned属性
 
     template <typename Derived>
-    static Eigen::Matrix<typename Derived::Scalar, 3, 3> skewSymmetric(const Eigen::MatrixBase<Derived> &q)
+    static Eigen::Matrix<typename Derived::Scalar, 3, 3> skewSymmetric(const Eigen::MatrixBase<Derived> &q)//向量转反对称矩阵ans
     {
         Eigen::Matrix<typename Derived::Scalar, 3, 3> ans;
         ans << typename Derived::Scalar(0), -q(2), q(1),
@@ -38,7 +43,7 @@ class Utility
     }
 
     template <typename Derived>
-    static Eigen::Quaternion<typename Derived::Scalar> positify(const Eigen::QuaternionBase<Derived> &q)
+    static Eigen::Quaternion<typename Derived::Scalar> positify(const Eigen::QuaternionBase<Derived> &q)//QuaternionBase转Quaternion
     {
         //printf("a: %f %f %f %f", q.w(), q.x(), q.y(), q.z());
         //Eigen::Quaternion<typename Derived::Scalar> p(-q.w(), -q.x(), -q.y(), -q.z());
@@ -58,7 +63,7 @@ class Utility
     }
 
     template <typename Derived>
-    static Eigen::Matrix<typename Derived::Scalar, 4, 4> Qright(const Eigen::QuaternionBase<Derived> &p)
+    static Eigen::Matrix<typename Derived::Scalar, 4, 4> Qright(const Eigen::QuaternionBase<Derived> &p)//四元数转成4*4的矩阵ans
     {
         Eigen::Quaternion<typename Derived::Scalar> pp = positify(p);
         Eigen::Matrix<typename Derived::Scalar, 4, 4> ans;
@@ -67,7 +72,7 @@ class Utility
         return ans;
     }
 
-    static Eigen::Vector3d R2ypr(const Eigen::Matrix3d &R)
+    static Eigen::Vector3d R2ypr(const Eigen::Matrix3d &R)//旋转矩阵R转欧拉角ypr
     {
         Eigen::Vector3d n = R.col(0);
         Eigen::Vector3d o = R.col(1);
@@ -85,7 +90,7 @@ class Utility
     }
 
     template <typename Derived>
-    static Eigen::Matrix<typename Derived::Scalar, 3, 3> ypr2R(const Eigen::MatrixBase<Derived> &ypr)
+    static Eigen::Matrix<typename Derived::Scalar, 3, 3> ypr2R(const Eigen::MatrixBase<Derived> &ypr)//欧拉角转旋转矩阵R
     {
         typedef typename Derived::Scalar Scalar_t;
 
@@ -111,7 +116,7 @@ class Utility
         return Rz * Ry * Rx;
     }
 
-    static Eigen::Matrix3d g2R(const Eigen::Vector3d &g);
+    static Eigen::Matrix3d g2R(const Eigen::Vector3d &g);//vector3d->Matrix3d
 
     template <size_t N>
     struct uint_
@@ -132,7 +137,8 @@ class Utility
     }
 
     template <typename T>
-    static T normalizeAngle(const T& angle_degrees) {
+    static T normalizeAngle(const T& angle_degrees)//角度转换
+    {
       T two_pi(2.0 * 180);
       if (angle_degrees > 0)
       return angle_degrees -
