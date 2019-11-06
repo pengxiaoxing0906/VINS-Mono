@@ -15,7 +15,7 @@ using namespace Eigen;
 
 #include "parameters.h"
 
-class FeaturePerFrame
+class FeaturePerFrame//每个路标点在一张图像中的信息
 {
   public:
     FeaturePerFrame(const Eigen::Matrix<double, 7, 1> &_point, double td)
@@ -35,13 +35,13 @@ class FeaturePerFrame
     Vector2d velocity;
     double z;
     bool is_used;
-    double parallax;
+    double parallax;//?
     MatrixXd A;
     VectorXd b;
-    double dep_gradient;
+    double dep_gradient;//?
 };
 
-class FeaturePerId
+class FeaturePerId//每个路标点由多个连续的图像观测到 FeaturePerFrame1,FeaturePerFrame2,FeaturePerFrame3,
 {
   public:
     const int feature_id;
@@ -65,17 +65,17 @@ class FeaturePerId
     int endFrame();
 };
 
-class FeatureManager
+class FeatureManager//滑窗内所有的路标点
 {
   public:
     FeatureManager(Matrix3d _Rs[]);
 
-    void setRic(Matrix3d _ric[]);
+    void setRic(Matrix3d _ric[]);//imu和相机的旋转外参
 
     void clearState();
 
     int getFeatureCount();
-
+//parallax是视差的意思
     bool addFeatureCheckParallax(int frame_count, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, double td);
     void debugShow();
     vector<pair<Vector3d, Vector3d>> getCorresponding(int frame_count_l, int frame_count_r);
@@ -94,7 +94,7 @@ class FeatureManager
     int last_track_num;
 
   private:
-    double compensatedParallax2(const FeaturePerId &it_per_id, int frame_count);
+    double compensatedParallax2(const FeaturePerId &it_per_id, int frame_count);//视差补偿
     const Matrix3d *Rs;
     Matrix3d ric[NUM_OF_CAM];
 };

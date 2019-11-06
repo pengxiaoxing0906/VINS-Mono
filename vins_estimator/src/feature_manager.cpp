@@ -2,7 +2,7 @@
 
 int FeaturePerId::endFrame()
 {
-    return start_frame + feature_per_frame.size() - 1;
+    return start_frame + feature_per_frame.size() - 1;//返回的是某个特征点被最后观测到的那一帧图像？还是特征点的数量？？
 }
 
 FeatureManager::FeatureManager(Matrix3d _Rs[])
@@ -28,10 +28,10 @@ void FeatureManager::clearState()
 int FeatureManager::getFeatureCount()
 {
     int cnt = 0;
-    for (auto &it : feature)
+    for (auto &it : feature)//list<FeaturePerId> feature;
     {
 
-        it.used_num = it.feature_per_frame.size();
+        it.used_num = it.feature_per_frame.size();//一张图像中特征点的数量
 
         if (it.used_num >= 2 && it.start_frame < WINDOW_SIZE - 2)
         {
@@ -51,18 +51,18 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
     last_track_num = 0;
     for (auto &id_pts : image)
     {
-        FeaturePerFrame f_per_fra(id_pts.second[0].second, td);
+        FeaturePerFrame f_per_fra(id_pts.second[0].second, td);//7*1 x,y,z,u,v,u的速度，v的速度
 
-        int feature_id = id_pts.first;
+        int feature_id = id_pts.first;//特征点的id
         auto it = find_if(feature.begin(), feature.end(), [feature_id](const FeaturePerId &it)
                           {
             return it.feature_id == feature_id;
                           });
 
-        if (it == feature.end())
+        if (it == feature.end())//这里的feature的数据类型是啥？从哪看 list<FeaturePerId> feature;
         {
             feature.push_back(FeaturePerId(feature_id, frame_count));
-            feature.back().feature_per_frame.push_back(f_per_fra);
+            feature.back().feature_per_frame.push_back(f_per_fra);//list链表.back()表示返回最后一个元素
         }
         else if (it->feature_id == feature_id)
         {
@@ -71,7 +71,7 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
         }
     }
 
-    if (frame_count < 2 || last_track_num < 20)
+    if (frame_count < 2 || last_track_num < 20)//如果上一次track的点少于20 就添加点 第一个frame_count表示啥来着？滑窗内的帧数
         return true;
 
     for (auto &it_per_id : feature)
@@ -79,7 +79,7 @@ bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vec
         if (it_per_id.start_frame <= frame_count - 2 &&
             it_per_id.start_frame + int(it_per_id.feature_per_frame.size()) - 1 >= frame_count - 1)
         {
-            parallax_sum += compensatedParallax2(it_per_id, frame_count);
+            parallax_sum += compensatedParallax2(it_per_id, frame_count);//开始补偿视差啦！
             parallax_num++;
         }
     }
@@ -119,10 +119,11 @@ void FeatureManager::debugShow()
 
 vector<pair<Vector3d, Vector3d>> FeatureManager::getCorresponding(int frame_count_l, int frame_count_r)
 {
+    //FeaturePerId里有start_frame、feature_id、vector<FeaturePerFrame>
     vector<pair<Vector3d, Vector3d>> corres;
     for (auto &it : feature)
     {
-        if (it.start_frame <= frame_count_l && it.endFrame() >= frame_count_r)
+        if (it.start_frame <= frame_count_l && it.endFrame() >= frame_count_r)//这两参数啥意思没看懂
         {
             Vector3d a = Vector3d::Zero(), b = Vector3d::Zero();
             int idx_l = frame_count_l - it.start_frame;
