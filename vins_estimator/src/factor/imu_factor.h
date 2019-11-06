@@ -17,6 +17,7 @@ class IMUFactor : public ceres::SizedCostFunction<15, 7, 9, 7, 9>
     {
     }
     virtual bool Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
+    //求imu的雅克比 输入残差residuals 15*1 ，4个优化变量 7维Pi Qi, 9维Vi Bai Bgi , 7维Pj Qj ,9维Vj Baj Bgj 残差对优化变量求导
     {
 
         Eigen::Vector3d Pi(parameters[0][0], parameters[0][1], parameters[0][2]);
@@ -61,13 +62,14 @@ class IMUFactor : public ceres::SizedCostFunction<15, 7, 9, 7, 9>
         residual = pre_integration->evaluate(Pi, Qi, Vi, Bai, Bgi,
                                             Pj, Qj, Vj, Baj, Bgj);
 
-        Eigen::Matrix<double, 15, 15> sqrt_info = Eigen::LLT<Eigen::Matrix<double, 15, 15>>(pre_integration->covariance.inverse()).matrixL().transpose();
+        Eigen::Matrix<double, 15, 15> sqrt_info = Eigen::LLT<Eigen::Matrix<double, 15, 15>>(pre_integration->covariance.inverse()).matrixL().transpose();//信息矩阵LLT分解
         //sqrt_info.setIdentity();
-        residual = sqrt_info * residual;
+        residual = sqrt_info * residual;//
 
         if (jacobians)
         {
             double sum_dt = pre_integration->sum_dt;
+            //O_P = 0,O_R = 3, O_V = 6, O_BA = 9, O_BG = 12
             Eigen::Matrix3d dp_dba = pre_integration->jacobian.template block<3, 3>(O_P, O_BA);
             Eigen::Matrix3d dp_dbg = pre_integration->jacobian.template block<3, 3>(O_P, O_BG);
 
@@ -90,7 +92,7 @@ class IMUFactor : public ceres::SizedCostFunction<15, 7, 9, 7, 9>
 
                 jacobian_pose_i.block<3, 3>(O_P, O_P) = -Qi.inverse().toRotationMatrix();
                 jacobian_pose_i.block<3, 3>(O_P, O_R) = Utility::skewSymmetric(Qi.inverse() * (0.5 * G * sum_dt * sum_dt + Pj - Pi - Vi * sum_dt));
-
+               //O_P = 0,O_R = 3, O_V = 6, O_BA = 9, O_BG = 12
 #if 0
             jacobian_pose_i.block<3, 3>(O_R, O_R) = -(Qj.inverse() * Qi).toRotationMatrix();
 #else
