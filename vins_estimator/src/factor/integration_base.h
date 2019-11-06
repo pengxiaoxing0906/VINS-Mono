@@ -16,9 +16,9 @@ class IntegrationBase
           linearized_ba{_linearized_ba}, linearized_bg{_linearized_bg},
             jacobian{Eigen::Matrix<double, 15, 15>::Identity()}, covariance{Eigen::Matrix<double, 15, 15>::Zero()},
           sum_dt{0.0}, delta_p{Eigen::Vector3d::Zero()}, delta_q{Eigen::Quaterniond::Identity()}, delta_v{Eigen::Vector3d::Zero()}
-
+//p,v,q,ba,bg每个都是3维，所以是15×1维，这里影响雅克比和协方差的维度
     {
-        noise = Eigen::Matrix<double, 18, 18>::Zero();
+        noise = Eigen::Matrix<double, 18, 18>::Zero();//往主对角上添加元素 但是为啥是18*18呢
         noise.block<3, 3>(0, 0) =  (ACC_N * ACC_N) * Eigen::Matrix3d::Identity();
         noise.block<3, 3>(3, 3) =  (GYR_N * GYR_N) * Eigen::Matrix3d::Identity();
         noise.block<3, 3>(6, 6) =  (ACC_N * ACC_N) * Eigen::Matrix3d::Identity();
@@ -45,7 +45,7 @@ class IntegrationBase
         delta_v.setZero();
         linearized_ba = _linearized_ba;
         linearized_bg = _linearized_bg;
-        jacobian.setIdentity();
+        jacobian.setIdentity();//雅克比初值设为单位阵
         covariance.setZero();
         for (int i = 0; i < static_cast<int>(dt_buf.size()); i++)
             propagate(dt_buf[i], acc_buf[i], gyr_buf[i]);
@@ -60,10 +60,10 @@ class IntegrationBase
                             Eigen::Vector3d &result_linearized_ba, Eigen::Vector3d &result_linearized_bg, bool update_jacobian)
     {
         //ROS_INFO("midpoint integration");
-        Vector3d un_acc_0 = delta_q * (_acc_0 - linearized_ba);
-        Vector3d un_gyr = 0.5 * (_gyr_0 + _gyr_1) - linearized_bg;
-        result_delta_q = delta_q * Quaterniond(1, un_gyr(0) * _dt / 2, un_gyr(1) * _dt / 2, un_gyr(2) * _dt / 2);
-        Vector3d un_acc_1 = result_delta_q * (_acc_1 - linearized_ba);
+        Vector3d un_acc_0 = delta_q * (_acc_0 - linearized_ba);//k时刻的加速度
+        Vector3d un_gyr = 0.5 * (_gyr_0 + _gyr_1) - linearized_bg;//中值积分的角速度
+        result_delta_q = delta_q * Quaterniond(1, un_gyr(0) * _dt / 2, un_gyr(1) * _dt / 2, un_gyr(2) * _dt / 2);//旋转的更新
+        Vector3d un_acc_1 = result_delta_q * (_acc_1 - linearized_ba);//k+1时刻的加速度
         Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);
         result_delta_p = delta_p + delta_v * _dt + 0.5 * un_acc * _dt * _dt;
         result_delta_v = delta_v + un_acc * _dt;
@@ -132,8 +132,8 @@ class IntegrationBase
 
             //step_jacobian = F;
             //step_V = V;
-            jacobian = F * jacobian;
-            covariance = F * covariance * F.transpose() + V * noise * V.transpose();
+            jacobian = F * jacobian;//雅克比的更新
+            covariance = F * covariance * F.transpose() + V * noise * V.transpose();//协方差的更新
         }
 
     }
@@ -167,13 +167,13 @@ class IntegrationBase
         gyr_0 = gyr_1;  
      
     }
-
+//求残差的表达式
     Eigen::Matrix<double, 15, 1> evaluate(const Eigen::Vector3d &Pi, const Eigen::Quaterniond &Qi, const Eigen::Vector3d &Vi, const Eigen::Vector3d &Bai, const Eigen::Vector3d &Bgi,
                                           const Eigen::Vector3d &Pj, const Eigen::Quaterniond &Qj, const Eigen::Vector3d &Vj, const Eigen::Vector3d &Baj, const Eigen::Vector3d &Bgj)
     {
         Eigen::Matrix<double, 15, 1> residuals;
 
-        Eigen::Matrix3d dp_dba = jacobian.block<3, 3>(O_P, O_BA);
+        Eigen::Matrix3d dp_dba = jacobian.block<3, 3>(O_P, O_BA);//O_P = 0,O_R = 3, O_V = 6, O_BA = 9, O_BG = 12
         Eigen::Matrix3d dp_dbg = jacobian.block<3, 3>(O_P, O_BG);
 
         Eigen::Matrix3d dq_dbg = jacobian.block<3, 3>(O_R, O_BG);
@@ -188,12 +188,12 @@ class IntegrationBase
         Eigen::Vector3d corrected_delta_v = delta_v + dv_dba * dba + dv_dbg * dbg;
         Eigen::Vector3d corrected_delta_p = delta_p + dp_dba * dba + dp_dbg * dbg;
 
-        residuals.block<3, 1>(O_P, 0) = Qi.inverse() * (0.5 * G * sum_dt * sum_dt + Pj - Pi - Vi * sum_dt) - corrected_delta_p;
-        residuals.block<3, 1>(O_R, 0) = 2 * (corrected_delta_q.inverse() * (Qi.inverse() * Qj)).vec();
-        residuals.block<3, 1>(O_V, 0) = Qi.inverse() * (G * sum_dt + Vj - Vi) - corrected_delta_v;
+        residuals.block<3, 1>(O_P, 0) = Qi.inverse() * (0.5 * G * sum_dt * sum_dt + Pj - Pi - Vi * sum_dt) - corrected_delta_p;//位置的误差
+        residuals.block<3, 1>(O_R, 0) = 2 * (corrected_delta_q.inverse() * (Qi.inverse() * Qj)).vec();//旋转的误差
+        residuals.block<3, 1>(O_V, 0) = Qi.inverse() * (G * sum_dt + Vj - Vi) - corrected_delta_v;//速度的误差
         residuals.block<3, 1>(O_BA, 0) = Baj - Bai;
         residuals.block<3, 1>(O_BG, 0) = Bgj - Bgi;
-        return residuals;
+        return residuals;//上面的都是为了写residuals
     }
 
     double dt;
