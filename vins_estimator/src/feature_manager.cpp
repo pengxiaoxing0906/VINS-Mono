@@ -265,7 +265,7 @@ void FeatureManager::removeOutlier()
          it != feature.end(); it = it_next)
     {
         it_next++;
-        i += it->used_num != 0;
+        i += it->used_num != 0;//used_num指出现的次数
         if (it->used_num != 0 && it->is_outlier == true)
         {
             feature.erase(it);
@@ -315,18 +315,18 @@ void FeatureManager::removeBackShiftDepth(Eigen::Matrix3d marg_R, Eigen::Vector3
 
 void FeatureManager::removeBack()
 {
-    for (auto it = feature.begin(), it_next = feature.begin();
+    for (auto it = feature.begin(), it_next = feature.begin();//从此特征点被观测到的起始帧开始循环到被观测到的最后一帧结束循环
          it != feature.end(); it = it_next)
     {
         it_next++;
 
-        if (it->start_frame != 0)
-            it->start_frame--;
-        else
+        if (it->start_frame != 0)//如果该特征点不是被第一帧观测到
+            it->start_frame--;//起始帧号减1
+        else//被第一帧观测到
         {
             it->feature_per_frame.erase(it->feature_per_frame.begin());
-            if (it->feature_per_frame.size() == 0)
-                feature.erase(it);
+            if (it->feature_per_frame.size() == 0)//如果这一帧里没有特征点
+                feature.erase(it);//丢掉这一帧
         }
     }
 }
@@ -355,7 +355,7 @@ void FeatureManager::removeFront(int frame_count)
 
 double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int frame_count)
 {
-    //check the second last frame is keyframe or not
+    //check the second last frame is keyframe or not刺新帧是否为关键帧
     //parallax betwwen seconde last frame and third last frame
     const FeaturePerFrame &frame_i = it_per_id.feature_per_frame[frame_count - 2 - it_per_id.start_frame];
     const FeaturePerFrame &frame_j = it_per_id.feature_per_frame[frame_count - 1 - it_per_id.start_frame];
@@ -365,6 +365,7 @@ double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int f
 
     double u_j = p_j(0);
     double v_j = p_j(1);
+    //这里为啥没有先归一化?
 
     Vector3d p_i = frame_i.point;
     Vector3d p_i_comp;
@@ -376,7 +377,7 @@ double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int f
     double dep_i = p_i(2);
     double u_i = p_i(0) / dep_i;
     double v_i = p_i(1) / dep_i;
-    double du = u_i - u_j, dv = v_i - v_j;
+    double du = u_i - u_j, dv = v_i - v_j;//这跟下面de_comp dv_comp不是一样的吗？
 
     double dep_i_comp = p_i_comp(2);
     double u_i_comp = p_i_comp(0) / dep_i_comp;
