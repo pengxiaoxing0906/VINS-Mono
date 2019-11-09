@@ -41,32 +41,37 @@ T readParam(ros::NodeHandle &n, std::string name)
 
 void readParameters(ros::NodeHandle &n)
 {
+    //[1]读取参数文件euroc_config.yaml
     std::string config_file;
     config_file = readParam<std::string>(n, "config_file");
     cv::FileStorage fsSettings(config_file, cv::FileStorage::READ);
+
+    //[2]文件是否正确打开判断
     if(!fsSettings.isOpened())
     {
         std::cerr << "ERROR: Wrong path to settings" << std::endl;
     }
 
-    fsSettings["imu_topic"] >> IMU_TOPIC;
+    //[3]读取相应参数
+    fsSettings["imu_topic"] >> IMU_TOPIC;//imu_topic: "/imu0"
 
     SOLVER_TIME = fsSettings["max_solver_time"];//solver的最大迭代时间0.04ms
     NUM_ITERATIONS = fsSettings["max_num_iterations"];//最大迭代次数8
-    MIN_PARALLAX = fsSettings["keyframe_parallax"];//keyframe selection threshold 10(pixel)
-    MIN_PARALLAX = MIN_PARALLAX / FOCAL_LENGTH;//没看懂这是用来干嘛的
+    MIN_PARALLAX = fsSettings["keyframe_parallax"];//最小视差10pixel
+    MIN_PARALLAX = MIN_PARALLAX / FOCAL_LENGTH;//最小视差=最小视差/焦距=10.0/460.0
 
+    //[4]设置输出路径
     std::string OUTPUT_PATH;
     fsSettings["output_path"] >> OUTPUT_PATH;
     VINS_RESULT_PATH = OUTPUT_PATH + "/vins_result_no_loop.csv";
     std::cout << "result path " << VINS_RESULT_PATH << std::endl;
 
-    // create folder if not exists
-    FileSystemHelper::createDirectoryIfNotExists(OUTPUT_PATH.c_str());
+    FileSystemHelper::createDirectoryIfNotExists(OUTPUT_PATH.c_str());//如果文件不存在，就创建一个
 
     std::ofstream fout(VINS_RESULT_PATH, std::ios::out);
     fout.close();
 
+    //【5】继续读取参数
     ACC_N = fsSettings["acc_n"];//加速度计的noise
     ACC_W = fsSettings["acc_w"];//加速度计的bias
     GYR_N = fsSettings["gyr_n"];//陀螺仪的noise
@@ -76,23 +81,24 @@ void readParameters(ros::NodeHandle &n)
     COL = fsSettings["image_width"];
     ROS_INFO("ROW: %f COL: %f ", ROW, COL);
 
+    //【6】读取imu和camera的外参，根据读取的参数执行相应的操作
     ESTIMATE_EXTRINSIC = fsSettings["estimate_extrinsic"];
-    if (ESTIMATE_EXTRINSIC == 2)
+    if (ESTIMATE_EXTRINSIC == 2)//表示完全让算法标定imu和相机之间的外参
     {
         ROS_WARN("have no prior about extrinsic param, calibrate extrinsic param");
-        RIC.push_back(Eigen::Matrix3d::Identity());
-        TIC.push_back(Eigen::Vector3d::Zero());
+        RIC.push_back(Eigen::Matrix3d::Identity());//给RIC赋值为单位阵
+        TIC.push_back(Eigen::Vector3d::Zero());//给TIC赋值为另矩阵
         EX_CALIB_RESULT_PATH = OUTPUT_PATH + "/extrinsic_parameter.csv";
 
     }
     else 
     {
-        if ( ESTIMATE_EXTRINSIC == 1)
+        if ( ESTIMATE_EXTRINSIC == 1)//表示我们提供一个初值，算法仅对初值进行优化
         {
             ROS_WARN(" Optimize extrinsic param around initial guess!");
             EX_CALIB_RESULT_PATH = OUTPUT_PATH + "/extrinsic_parameter.csv";
         }
-        if (ESTIMATE_EXTRINSIC == 0)
+        if (ESTIMATE_EXTRINSIC == 0)//表示算法信任我们提供的外参，不对其做任何修改
             ROS_WARN(" fix extrinsic param ");
 
         cv::Mat cv_R, cv_T;
@@ -111,12 +117,14 @@ void readParameters(ros::NodeHandle &n)
         
     } 
 
+    //[7]给参数赋初始值
     INIT_DEPTH = 5.0;
     BIAS_ACC_THRESHOLD = 0.1;
     BIAS_GYR_THRESHOLD = 0.1;
 
+    //[8]继续读取参数TD，图像和IMU数据在时间上的偏移量，这里配置文件中为0.0
     TD = fsSettings["td"];//0 initial value of time offset. unit: s. readed image clock + td = real image clock (IMU clock)
-    ESTIMATE_TD = fsSettings["estimate_td"];//0 意义是啥 怎么用？
+    ESTIMATE_TD = fsSettings["estimate_td"];//0
     if (ESTIMATE_TD)
         ROS_INFO_STREAM("Unsynchronized sensors, online estimate time offset, initial td: " << TD);
     else

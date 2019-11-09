@@ -42,40 +42,45 @@ double last_imu_t = 0;
 void predict(const sensor_msgs::ImuConstPtr &imu_msg)
 {
     double t = imu_msg->header.stamp.toSec();
+    //[1]判断是否是第一帧imu_msg
     if (init_imu) //if语句里的return，使程序跳出if所在的函数，返回到母函数中继续执行。
     {
         latest_time = t;
         init_imu = 0;
         return;
     }
-}
-//计算当前imu_msg距离上一个imu_msg的时间间隔
+
+   //[2]计算当前imu_msg距离上一个imu_msg的时间间隔
     double dt = t - latest_time;
     latest_time = t;
 
+    //[3]取x,y,z三个方向上的线加速度
     double dx = imu_msg->linear_acceleration.x;
     double dy = imu_msg->linear_acceleration.y;
     double dz = imu_msg->linear_acceleration.z;
     Eigen::Vector3d linear_acceleration{dx, dy, dz};
 
+    //【4】获取x,y,z三个方向上的角速度
     double rx = imu_msg->angular_velocity.x;
     double ry = imu_msg->angular_velocity.y;
     double rz = imu_msg->angular_velocity.z;
     Eigen::Vector3d angular_velocity{rx, ry, rz};
 
-    Eigen::Vector3d un_acc_0 = tmp_Q * (acc_0 - tmp_Ba) - estimator.g;//a理想值=R(a测量值-Ba)-g  w理想值=w测量值-BW
+    //【5】tmp_P,tmp_V,tmp_Q更新,这一部分有公式推导 ，利用的是中值积分
+    Eigen::Vector3d un_acc_0 = tmp_Q * (acc_0 - tmp_Ba) - estimator.g;//a理想值=R(a测量值-Ba)-g  w理想值=w测量值-BW 此式为k时刻的加速度的模型
 
     Eigen::Vector3d un_gyr = 0.5 * (gyr_0 + angular_velocity) - tmp_Bg;//中值法：取k时刻和k+1时刻的角速度再除2
     tmp_Q = tmp_Q * Utility::deltaQ(un_gyr * dt);//旋转的更新
 
-    Eigen::Vector3d un_acc_1 = tmp_Q * (linear_acceleration - tmp_Ba) - estimator.g;
+    Eigen::Vector3d un_acc_1 = tmp_Q * (linear_acceleration - tmp_Ba) - estimator.g;//k+1时刻的加速度
 
     Eigen::Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);
 
     tmp_P = tmp_P + dt * tmp_V + 0.5 * dt * dt * un_acc;
     tmp_V = tmp_V + dt * un_acc;
 
-    acc_0 = linear_acceleration;//迭代赋值
+    //【6】迭代赋值
+    acc_0 = linear_acceleration;
     gyr_0 = angular_velocity;
 }
 //得到窗口最后一个图像帧的imu项[P,Q,V,ba,bg,a,g]，对imu_buf中剩余imu_msg进行PVQ递推
@@ -153,6 +158,8 @@ getMeasurements()
 
 void imu_callback(const sensor_msgs::ImuConstPtr &imu_msg)
 {
+
+    //[1]当前imu采样时间小于上次imu采样时间，说明有bug,跳出此条件。
     if (imu_msg->header.stamp.toSec() <= last_imu_t)//初值last_imu_t=0
     {
         ROS_WARN("imu message in disorder!");
@@ -160,16 +167,20 @@ void imu_callback(const sensor_msgs::ImuConstPtr &imu_msg)
     }
     last_imu_t = imu_msg->header.stamp.toSec();
 
-    m_buf.lock();//是个锁，但不知道具体表示啥意思
-    imu_buf.push(imu_msg);//将IMU数据保存到imu_buf中，同时执行con.notify_one();唤醒作用于process线程中的获取观测值数据的函数
+    //[2]在修改多个线程共享的变量的时候进行上锁，防止多个线程同时访问该变量
+    m_buf.lock();
+    imu_buf.push(imu_msg);//将IMU数据保存到imu_buf中
     m_buf.unlock();
-    con.notify_one();
+    con.notify_one();//唤醒作用于process线程中的获取观测值数据的函数
 
     last_imu_t = imu_msg->header.stamp.toSec();
 //这个括弧是啥写法？
     {
-        std::lock_guard<std::mutex> lg(m_state);
+        //[3]预测tmp_P,tmp_V,tmp_Q
+        std::lock_guard<std::mutex> lg(m_state);//模板类std::lock_guard，在构造时就能提供已锁的互斥量，并在析构的时候进行解锁,在std::lock_guard对象构造时，传入的mutex对象(即它所管理的mutex对象)会被当前线程锁住
         predict(imu_msg);
+
+        //[4]如果solver_flag为非线性优化，发布最新的里程计消息
         std_msgs::Header header = imu_msg->header;
         header.frame_id = "world";
         if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)
@@ -177,32 +188,40 @@ void imu_callback(const sensor_msgs::ImuConstPtr &imu_msg)
     }
 }
 
-
+//feature回调函数，将feature_msg放入feature_buf
 void feature_callback(const sensor_msgs::PointCloudConstPtr &feature_msg)
 {
-    if (!init_feature)
+    //[1]判断是否是第一个特征，如果是第一个特征直接跳过
+    if (!init_feature)//init_feature=0
     {
         //skip the first detected feature, which doesn't contain optical flow speed
         init_feature = 1;
         return;
     }
+
+    //[2]把feature_msg加入feature_buf中
     m_buf.lock();
     feature_buf.push(feature_msg);
     m_buf.unlock();
-    con.notify_one();
+    con.notify_one();//唤醒process线程
 }
 
+//restart回调函数，收到restart消息时清空feature_buf和imu_buf，估计器重置，时间重置
 void restart_callback(const std_msgs::BoolConstPtr &restart_msg)
 {
+
     if (restart_msg->data == true)
     {
         ROS_WARN("restart the estimator!");
+        //[1]当feature_buf和imu_buf非空时，循环删除队首元素
         m_buf.lock();
         while(!feature_buf.empty())
             feature_buf.pop();
         while(!imu_buf.empty())
             imu_buf.pop();
         m_buf.unlock();
+
+        //[2]清除估计器的状态和参数，时间重置
         m_estimator.lock();
         estimator.clearState();
         estimator.setParameter();
@@ -217,7 +236,7 @@ void relocalization_callback(const sensor_msgs::PointCloudConstPtr &points_msg)
 {
     //printf("relocalization callback! \n");
     m_buf.lock();
-    relo_buf.push(points_msg);
+    relo_buf.push(points_msg);//把points_msg push进relo_buf中
     m_buf.unlock();
 }
 
@@ -390,23 +409,31 @@ void process()
 
 int main(int argc, char **argv)
 {
+    //[1]初始化，设置句柄，设置logger级别
     ros::init(argc, argv, "vins_estimator");
     ros::NodeHandle n("~");
     ros::console::set_logger_level(ROSCONSOLE_DEFAULT_NAME, ros::console::levels::Info);
+
+    //【2】从config_file中读取参数，imu话题，Ba,Bg,Na,Ng，最大迭代次数等
     readParameters(n);
+
+    //【3】优化器设置参数，包括相机IMU外参tic和ric
     estimator.setParameter();
 #ifdef EIGEN_DONT_PARALLELIZE
     ROS_DEBUG("EIGEN_DONT_PARALLELIZE");
 #endif
     ROS_WARN("waiting for image and imu...");
-//注册发布器
+
+    //[4]注册visualization.cpp中创建的发布器registerPub(n)
     registerPub(n);
 
+    //[5]订阅imu话题，订阅/feature_tracker/feature，/feature_tracker/restart，/pose_graph/match_points等话题,执行回调函数
     ros::Subscriber sub_imu = n.subscribe(IMU_TOPIC, 2000, imu_callback, ros::TransportHints().tcpNoDelay());
     ros::Subscriber sub_image = n.subscribe("/feature_tracker/feature", 2000, feature_callback);
     ros::Subscriber sub_restart = n.subscribe("/feature_tracker/restart", 2000, restart_callback);
     ros::Subscriber sub_relo_points = n.subscribe("/pose_graph/match_points", 2000, relocalization_callback);
 
+    //[6]创建主线程函数process()，在process()中处理VIO后端，包括IMU预积分、松耦合初始化和local BA
     std::thread measurement_process{process};//创建线程measurement_process对象，一创建线程对象就启动线程 运行process
     ros::spin();
 
