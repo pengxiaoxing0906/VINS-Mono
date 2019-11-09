@@ -22,7 +22,7 @@ static Vector3d last_path(0.0, 0.0, 0.0);
 
 void registerPub(ros::NodeHandle &n)
 {
-    pub_latest_odometry = n.advertise<nav_msgs::Odometry>("imu_propagate", 1000);
+    pub_latest_odometry = n.advertise<nav_msgs::Odometry>("imu_propagate", 1000);//1000指队列长度
     pub_path = n.advertise<nav_msgs::Path>("path", 1000);
     pub_relo_path = n.advertise<nav_msgs::Path>("relocalization_path", 1000);
     pub_odometry = n.advertise<nav_msgs::Odometry>("odometry", 1000);

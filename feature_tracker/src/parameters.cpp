@@ -46,20 +46,20 @@ void readParameters(ros::NodeHandle &n)
     }
     std::string VINS_FOLDER_PATH = readParam<std::string>(n, "vins_folder");
 
-    fsSettings["image_topic"] >> IMAGE_TOPIC;
-    fsSettings["imu_topic"] >> IMU_TOPIC;
-    MAX_CNT = fsSettings["max_cnt"];//tracking的最大特征点数量
-    MIN_DIST = fsSettings["min_dist"];//min distance between two features
-    ROW = fsSettings["image_height"];
-    COL = fsSettings["image_width"];
+    fsSettings["image_topic"] >> IMAGE_TOPIC; //image_topic: "/cam0/image_raw"
+    fsSettings["imu_topic"] >> IMU_TOPIC; //imu_topic: "/imu0"
+    MAX_CNT = fsSettings["max_cnt"];//tracking最大特征点数量150
+    MIN_DIST = fsSettings["min_dist"];//两个特征点之间的最小距离30
+    ROW = fsSettings["image_height"];//480
+    COL = fsSettings["image_width"];//752
     FREQ = fsSettings["freq"];//publish tracking result 的频率,默认设置为10hz
-    F_THRESHOLD = fsSettings["F_threshold"];//ransac threshold (pixel)
-    SHOW_TRACK = fsSettings["show_track"];//发布image topic
+    F_THRESHOLD = fsSettings["F_threshold"];//ransac threshold (pixel)值为1
+    SHOW_TRACK = fsSettings["show_track"];//发布image topic 值为1
     EQUALIZE = fsSettings["equalize"];//if image is too dark or light, trun on equalize to find enough features,默认为1
-    FISHEYE = fsSettings["fisheye"];//默认不用fisheye
+    FISHEYE = fsSettings["fisheye"];//默认不用fisheye 默认值为0
     if (FISHEYE == 1)
         FISHEYE_MASK = VINS_FOLDER_PATH + "config/fisheye_mask.jpg";
-    CAM_NAMES.push_back(config_file);//注意传递string类型的config_file给CAM_NAMES代表那这个camera有param里的一切参数？
+    CAM_NAMES.push_back(config_file);//string类型的config_file push到CAM_NAMES vector中
 
     WINDOW_SIZE = 20;
     STEREO_TRACK = false;//如果双目 把这个参数改为true
