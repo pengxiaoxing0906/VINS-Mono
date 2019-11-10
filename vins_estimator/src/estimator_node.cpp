@@ -108,16 +108,17 @@ void update()
 //sensor_msgs::PointCloudConstPtr 表示某一帧图像的feature_points
 //std::vector<sensor_msgs::ImuConstPtr> 表示当前帧和上一帧时间间隔中的所有IMU数据
 std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>>
-getMeasurements()
+getMeasurements()//看看这返回类型，这么长！
 {
     std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>> measurements;
 
     while (true)
     {
-        //imu信息接收到后会在imu_callback回调中存入imu_buf，feature消息收到后会在feature_callback中存入feature_buf中
+        //[1]进入大循环，imu信息接收到后会存入imu_buf，feature消息收到后存入feature_buf中。判断队列是否为空，为空返回measurements
         if (imu_buf.empty() || feature_buf.empty())
             return measurements;
-        //下面两个if判断都是对imu数据和image数据在时间戳上的判断（时间要对齐才能进行组合）
+
+        //[2]对imu数据和image数据在时间戳上的判断（时间要对齐才能进行组合）
         //imu_buf中最后一个imu消息的时间戳比feature_buf中第一个feature消息的时间戳还要小，说明imu数据发出来太早了
         if (!(imu_buf.back()->header.stamp.toSec() > feature_buf.front()->header.stamp.toSec() + estimator.td))
         {
@@ -134,12 +135,13 @@ getMeasurements()
             feature_buf.pop();
             continue;
         }
-        //获取队列头部的图像数据，也就是最早发布的图像数据
-        sensor_msgs::PointCloudConstPtr img_msg = feature_buf.front();
-        feature_buf.pop();
+
+        //[3]获取最早发布的图像数据
+        sensor_msgs::PointCloudConstPtr img_msg = feature_buf.front();//返回队首元素的值
+        feature_buf.pop();// 删除队列首元素，不过将它删除干嘛？
 
         std::vector<sensor_msgs::ImuConstPtr> IMUs;//两帧图像之间有很多imu，所以用vector
-        //imu_buf的最前边的数据时间戳小于图像数据的时间戳的话，就将imu_buf中最前边的数据存入IMUs当中
+        //【6】imu_buf的最前边的数据时间戳小于图像数据的时间戳的话，就将imu_buf中最前边的数据存入IMUs当中
         while (imu_buf.front()->header.stamp.toSec() < img_msg->header.stamp.toSec() + estimator.td)
         {
             //将imu_buf中最上边的元素插入到IMUs的尾部
@@ -245,9 +247,10 @@ void process()
 {
     while (true)
     {
+        //[1]进入循环构建measurements复合数据类型，将imu和图像数据组合起来
         std::vector<std::pair<std::vector<sensor_msgs::ImuConstPtr>, sensor_msgs::PointCloudConstPtr>> measurements;
-        std::unique_lock<std::mutex> lk(m_buf);
-        //只有当 getMeasurements()).size() = 0时wait() 阻塞当前线程，并且在收到imucallback,imagecallback的通知后getMeasurements()).size() != 0即有数据时时才会被解除阻塞
+        std::unique_lock<std::mutex> lk(m_buf);//锁定m_buf
+        //当 getMeasurements()).size() = 0时wait() 阻塞当前线程，并且在收到imucallback,imagecallback的通知后getMeasurements()).size() != 0即有数据时时才会被解除阻塞
         con.wait(lk, [&]
                  {
             return (measurements = getMeasurements()).size() != 0;
@@ -264,13 +267,14 @@ void process()
  *其它组合形式：
  * */
         lk.unlock();
-        m_estimator.lock();
-        //遍历measurements，其实就是遍历获取每一个img_msg和其对应的imu_msg对数据进行处理
+
+        //[2]遍历measurements，其实就是遍历获取每一个img_msg和其对应的imu_msg对数据进行处理
+        m_estimator.lock();//上锁
         for (auto &measurement : measurements)
         {
             auto img_msg = measurement.second;
             double dx = 0, dy = 0, dz = 0, rx = 0, ry = 0, rz = 0;
-            //遍历和当前img_msg时间上“对齐”的IMU数据
+            //[3]遍历和当前img_msg时间上“对齐”的IMU数据,处理imu数据processIMU()
             for (auto &imu_msg : measurement.first)
             {
                 double t = imu_msg->header.stamp.toSec();
@@ -320,12 +324,14 @@ void process()
                     //printf("dimu: dt:%f a: %f %f %f w: %f %f %f\n",dt_1, dx, dy, dz, rx, ry, rz);
                 }
             }
-            // set relocalization frame
+
+
+            //[4] 设置重定位帧setReloFrame( )
             sensor_msgs::PointCloudConstPtr relo_msg = NULL;//去看传感器数据的definition
             while (!relo_buf.empty())
             {
-                relo_msg = relo_buf.front();
-                relo_buf.pop();
+                relo_msg = relo_buf.front();// 返回队首元素的值
+                relo_buf.pop();//删除队列首元素
             }
             if (relo_msg != NULL)
             {
@@ -350,10 +356,12 @@ void process()
                 estimator.setReloFrame(frame_stamp, frame_index, match_points, relo_t, relo_r);
             }
 
+
+            //[5]处理图像processImage( )
             ROS_DEBUG("processing vision data with stamp %f \n", img_msg->header.stamp.toSec());
 
             TicToc t_s;
-            map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> image;
+            map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> image;//数据类型分别表示feature_id,camera_id,点的x,y,z坐标，u,v坐标，在x,y方向上的跟踪速度
             //遍历img_msg中的特征点
             for (unsigned int i = 0; i < img_msg->points.size(); i++)
             {
@@ -377,27 +385,24 @@ void process()
             }
             estimator.processImage(image, img_msg->header);
 
+            //[6]发布message
             double whole_t = t_s.toc();
             printStatistics(estimator, whole_t);
             std_msgs::Header header = img_msg->header;
             header.frame_id = "world";
-            //给Rviz发送里程计信息：odometry、path、relo_path这几个topic
             pubOdometry(estimator, header);
-            //给Rviz发送关键点位置
             pubKeyPoses(estimator, header);
-            //给Rviz发送相机位置
             pubCameraPose(estimator, header);
-            //给Rviz发送点云数据
             pubPointCloud(estimator, header);
-            //发布tf转换topic
             pubTF(estimator, header);
-            //发送关键帧信息
             pubKeyframe(estimator);
             if (relo_msg != NULL)
                 pubRelocalization(estimator);
             //ROS_ERROR("end: %f, at %f", img_msg->header.stamp.toSec(), ros::Time::now().toSec());
         }
-        m_estimator.unlock();
+        m_estimator.unlock();//解锁
+
+        //[7]当solver_flag为NON_LINEAR时,update()
         m_buf.lock();
         m_state.lock();
         if (estimator.solver_flag == Estimator::SolverFlag::NON_LINEAR)

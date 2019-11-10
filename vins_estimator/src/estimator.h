@@ -28,7 +28,7 @@ class Estimator
   public:
     Estimator();
 
-    void setParameter();
+    void setParameter();//设置imu和camera的外参数
 
     // interface
     void processIMU(double t, const Vector3d &linear_acceleration, const Vector3d &angular_velocity);
@@ -36,16 +36,16 @@ class Estimator
     void setReloFrame(double _frame_stamp, int _frame_index, vector<Vector3d> &_match_points, Vector3d _relo_t, Matrix3d _relo_r);
 
     // internal
-    void clearState();
-    bool initialStructure();
-    bool visualInitialAlign();
-    bool relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l);
+    void clearState();//清空或初始化滑动窗口中所有的状态量
+    bool initialStructure();//视觉的结构初始化
+    bool visualInitialAlign();//视觉惯性联合初始化
+    bool relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l);//判断两帧有足够视差30且内点数目大于12则可进行初始化，同时得到R和T
     void slideWindow();
-    void solveOdometry();
+    void solveOdometry();//VIO非线性优化求解里程计
     void slideWindowNew();
     void slideWindowOld();
-    void optimization();
-    void vector2double();
+    void optimization();//基于滑动窗口的紧耦合的非线性优化，残差项的构造和求解
+    void vector2double();//vector转换成double数组，因为ceres使用数值数组
     void double2vector();
     bool failureDetection();
 
@@ -62,8 +62,8 @@ class Estimator
         MARGIN_SECOND_NEW = 1
     };
 
-    SolverFlag solver_flag;
-    MarginalizationFlag  marginalization_flag;
+    SolverFlag solver_flag;//枚举量，要么0，要么1
+    MarginalizationFlag  marginalization_flag;//枚举量，要么0，要么1
     Vector3d g;
     MatrixXd Ap[2], backup_A;
     VectorXd bp[2], backup_b;
@@ -71,7 +71,7 @@ class Estimator
     Matrix3d ric[NUM_OF_CAM];
     Vector3d tic[NUM_OF_CAM];
 
-    Vector3d Ps[(WINDOW_SIZE + 1)];
+    Vector3d Ps[(WINDOW_SIZE + 1)];//WINDOW_SIZE=10
     Vector3d Vs[(WINDOW_SIZE + 1)];
     Matrix3d Rs[(WINDOW_SIZE + 1)];
     Vector3d Bas[(WINDOW_SIZE + 1)];
@@ -82,7 +82,7 @@ class Estimator
     Vector3d back_P0, last_P, last_P0;
     std_msgs::Header Headers[(WINDOW_SIZE + 1)];
 
-    IntegrationBase *pre_integrations[(WINDOW_SIZE + 1)];
+    IntegrationBase *pre_integrations[(WINDOW_SIZE + 1)];//定义在integration_base.h中
     Vector3d acc_0, gyr_0;
 
     vector<double> dt_buf[(WINDOW_SIZE + 1)];
@@ -92,9 +92,9 @@ class Estimator
     int frame_count;
     int sum_of_outlier, sum_of_back, sum_of_front, sum_of_invalid;
 
-    FeatureManager f_manager;
-    MotionEstimator m_estimator;
-    InitialEXRotation initial_ex_rotation;
+    FeatureManager f_manager;//滑窗内所有点 定义在feature_manager.h中
+    MotionEstimator m_estimator;//?
+    InitialEXRotation initial_ex_rotation;//定义在initial_ex_rotation.h中
 
     bool first_imu;
     bool is_valid, is_key;
@@ -116,7 +116,7 @@ class Estimator
 
     int loop_window_index;
 
-    MarginalizationInfo *last_marginalization_info;
+    MarginalizationInfo *last_marginalization_info;//定义在marginalization_factor.h中
     vector<double *> last_marginalization_parameter_blocks;
 
     map<double, ImageFrame> all_image_frame;
@@ -128,7 +128,7 @@ class Estimator
     double relo_frame_index;
     int relo_frame_local_index;
     vector<Vector3d> match_points;
-    double relo_Pose[SIZE_POSE];
+    double relo_Pose[SIZE_POSE];//SIZE_POSE=7
     Matrix3d drift_correct_r;
     Vector3d drift_correct_t;
     Vector3d prev_relo_t;

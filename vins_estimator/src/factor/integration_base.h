@@ -9,7 +9,7 @@ using namespace Eigen;
 class IntegrationBase
 {
   public:
-    IntegrationBase() = delete;
+    IntegrationBase() = delete;//表示删除默认构造函数
     IntegrationBase(const Eigen::Vector3d &_acc_0, const Eigen::Vector3d &_gyr_0,
                     const Eigen::Vector3d &_linearized_ba, const Eigen::Vector3d &_linearized_bg)
         : acc_0{_acc_0}, gyr_0{_gyr_0}, linearized_acc{_acc_0}, linearized_gyr{_gyr_0},
@@ -18,7 +18,7 @@ class IntegrationBase
           sum_dt{0.0}, delta_p{Eigen::Vector3d::Zero()}, delta_q{Eigen::Quaterniond::Identity()}, delta_v{Eigen::Vector3d::Zero()}
 //p,v,q,ba,bg每个都是3维，所以是15×1维，这里影响雅克比和协方差的维度
     {
-        noise = Eigen::Matrix<double, 18, 18>::Zero();//往主对角上添加元素 但是为啥是18*18呢
+        noise = Eigen::Matrix<double, 18, 18>::Zero();//往主对角上添加元素
         noise.block<3, 3>(0, 0) =  (ACC_N * ACC_N) * Eigen::Matrix3d::Identity();
         noise.block<3, 3>(3, 3) =  (GYR_N * GYR_N) * Eigen::Matrix3d::Identity();
         noise.block<3, 3>(6, 6) =  (ACC_N * ACC_N) * Eigen::Matrix3d::Identity();
@@ -27,7 +27,7 @@ class IntegrationBase
         noise.block<3, 3>(15, 15) =  (GYR_W * GYR_W) * Eigen::Matrix3d::Identity();
     }
 
-    void push_back(double dt, const Eigen::Vector3d &acc, const Eigen::Vector3d &gyr)
+    void push_back(double dt, const Eigen::Vector3d &acc, const Eigen::Vector3d &gyr)//把传递的参数值push到相应的vector中
     {
         dt_buf.push_back(dt);
         acc_buf.push_back(acc);
@@ -46,11 +46,12 @@ class IntegrationBase
         linearized_ba = _linearized_ba;
         linearized_bg = _linearized_bg;
         jacobian.setIdentity();//雅克比初值设为单位阵
-        covariance.setZero();
+        covariance.setZero();//协方差矩阵初值为0矩阵
         for (int i = 0; i < static_cast<int>(dt_buf.size()); i++)
             propagate(dt_buf[i], acc_buf[i], gyr_buf[i]);
     }
 
+    //离散形式下PVQ增量误差，这一部分基本上是根据公式来求的，求误差的雅克比和协方差的迭代更新公式
     void midPointIntegration(double _dt, 
                             const Eigen::Vector3d &_acc_0, const Eigen::Vector3d &_gyr_0,
                             const Eigen::Vector3d &_acc_1, const Eigen::Vector3d &_gyr_1,
@@ -59,22 +60,22 @@ class IntegrationBase
                             Eigen::Vector3d &result_delta_p, Eigen::Quaterniond &result_delta_q, Eigen::Vector3d &result_delta_v,
                             Eigen::Vector3d &result_linearized_ba, Eigen::Vector3d &result_linearized_bg, bool update_jacobian)
     {
-        //ROS_INFO("midpoint integration");
+        //ROS_INFO("midpoint integration");a_q为相对预计分参考系的旋转四元数
         Vector3d un_acc_0 = delta_q * (_acc_0 - linearized_ba);//k时刻的加速度
         Vector3d un_gyr = 0.5 * (_gyr_0 + _gyr_1) - linearized_bg;//中值积分的角速度
         result_delta_q = delta_q * Quaterniond(1, un_gyr(0) * _dt / 2, un_gyr(1) * _dt / 2, un_gyr(2) * _dt / 2);//旋转的更新
         Vector3d un_acc_1 = result_delta_q * (_acc_1 - linearized_ba);//k+1时刻的加速度
-        Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);
-        result_delta_p = delta_p + delta_v * _dt + 0.5 * un_acc * _dt * _dt;
-        result_delta_v = delta_v + un_acc * _dt;
-        result_linearized_ba = linearized_ba;
-        result_linearized_bg = linearized_bg;
-        //是否更新IMU预计分测量关于IMU Bias的雅克比矩阵
+        Vector3d un_acc = 0.5 * (un_acc_0 + un_acc_1);//中值积分的加速度
+        result_delta_p = delta_p + delta_v * _dt + 0.5 * un_acc * _dt * _dt;//位置P的更新
+        result_delta_v = delta_v + un_acc * _dt;//速度v的更新
+        result_linearized_ba = linearized_ba;//ba的迭代，短时间内认为值不变，所以直接赋值就好
+        result_linearized_bg = linearized_bg;//bg同上
+        //是否更新IMU预计分测量关于IMU Bias的雅克比矩阵！！！离散形式下的
         if(update_jacobian)
         {
-            Vector3d w_x = 0.5 * (_gyr_0 + _gyr_1) - linearized_bg;
+            Vector3d w_x = 0.5 * (_gyr_0 + _gyr_1) - linearized_bg;//角速度
             //计算_acc_0这个观测线加速度对应的实际加速度
-            Vector3d a_0_x = _acc_0 - linearized_ba;
+            Vector3d a_0_x = _acc_0 - linearized_ba;//线加速度
             Vector3d a_1_x = _acc_1 - linearized_ba;
             Matrix3d R_w_x, R_a_0_x, R_a_1_x;
             /**
@@ -132,7 +133,12 @@ class IntegrationBase
 
             //step_jacobian = F;
             //step_V = V;
-            jacobian = F * jacobian;//雅克比的更新
+            jacobian = F * jacobian;//雅克比的更新,迭代公式：J_(k+1)​=F*J_k​，J_0​=I
+            /**
+             * covariance为协方差，协方差的迭代公式：P_(k+1) ​= F*P_k*​F^T + V*Q*V^T，P_0​ = 0
+             * P_k就是协方差，Q为noise，其初值为18*18的单位矩阵
+            */
+
             covariance = F * covariance * F.transpose() + V * noise * V.transpose();//协方差的更新
         }
 
@@ -188,6 +194,7 @@ class IntegrationBase
         Eigen::Vector3d corrected_delta_v = delta_v + dv_dba * dba + dv_dbg * dbg;
         Eigen::Vector3d corrected_delta_p = delta_p + dp_dba * dba + dp_dbg * dbg;
 
+        //IMU残差
         residuals.block<3, 1>(O_P, 0) = Qi.inverse() * (0.5 * G * sum_dt * sum_dt + Pj - Pi - Vi * sum_dt) - corrected_delta_p;//位置的误差
         residuals.block<3, 1>(O_R, 0) = 2 * (corrected_delta_q.inverse() * (Qi.inverse() * Qj)).vec();//旋转的误差
         residuals.block<3, 1>(O_V, 0) = Qi.inverse() * (G * sum_dt + Vj - Vi) - corrected_delta_v;//速度的误差
