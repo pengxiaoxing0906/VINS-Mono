@@ -74,7 +74,7 @@ class FeatureManager//滑窗内所有的路标点
 
     void clearState();
 
-    int getFeatureCount();
+    int getFeatureCount();//计算滑窗内被track过的特征点的数量
 //parallax是视差的意思
     bool addFeatureCheckParallax(int frame_count, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, double td);
     void debugShow();

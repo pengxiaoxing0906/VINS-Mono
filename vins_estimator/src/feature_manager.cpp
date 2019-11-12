@@ -25,13 +25,13 @@ void FeatureManager::clearState()
     feature.clear();
 }
 
-int FeatureManager::getFeatureCount()
+int FeatureManager::getFeatureCount()//计算滑窗内被track过的特征点的数量
 {
     int cnt = 0;
     for (auto &it : feature)//list<FeaturePerId> feature;
     {
 
-        it.used_num = it.feature_per_frame.size();//一张图像中特征点的数量
+        it.used_num = it.feature_per_frame.size();//feature_per_frame.size的大小就表示有多少个帧可以看到该特征点,used_num表示这个特征点在滑窗内出现的次数
 
         if (it.used_num >= 2 && it.start_frame < WINDOW_SIZE - 2)
         {
@@ -44,55 +44,70 @@ int FeatureManager::getFeatureCount()
 
 bool FeatureManager::addFeatureCheckParallax(int frame_count, const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, double td)
 {
+    //image数据类型解释：feature_id,camera_id，p.x,p.y,p.z,u,v,u_velocity,v_velocity
     ROS_DEBUG("input feature: %d", (int)image.size());
-    ROS_DEBUG("num of feature: %d", getFeatureCount());
-    double parallax_sum = 0;
-    int parallax_num = 0;
-    last_track_num = 0;
+    ROS_DEBUG("num of feature: %d", getFeatureCount());//计算滑窗内被track过的特征点的数量
+    double parallax_sum = 0;//视差总和
+    int parallax_num = 0;//满足条件的特征点数量
+    last_track_num = 0;//被跟踪点的个数
+
+    //[1]遍历图像image中所有的特征点，和已经记录了特征点的容器feature中进行比较
     for (auto &id_pts : image)
     {
         FeaturePerFrame f_per_fra(id_pts.second[0].second, td);//7*1 x,y,z,u,v,u的速度，v的速度
 
-        int feature_id = id_pts.first;//特征点的id
+        int feature_id = id_pts.first;//获取特征点的id
+        //在feature中查找该feature_id的feature是否存在
         auto it = find_if(feature.begin(), feature.end(), [feature_id](const FeaturePerId &it)
                           {
             return it.feature_id == feature_id;
                           });
 
-        if (it == feature.end())//这里的feature的数据类型是啥？从哪看 list<FeaturePerId> feature;
+        if (it == feature.end())//这里的feature的数据类型: list<FeaturePerId> feature;
         {
+           //没有找到该feature的id，则把特征点放入feature的list容器中
             feature.push_back(FeaturePerId(feature_id, frame_count));
             feature.back().feature_per_frame.push_back(f_per_fra);//list链表.back()表示返回最后一个元素
         }
         else if (it->feature_id == feature_id)
         {
+/**
+ * 如果找到了相同ID特征点，就在其FeaturePerFrame内增加此特征点在此帧的位置以及其他信息，
+ * it的feature_per_frame容器中存放的是该feature能够被哪些帧看到，存放的是在这些帧中该特征点的信息
+ * 所以，feature_per_frame.size的大小就表示有多少个帧可以看到该特征点
+ * */
             it->feature_per_frame.push_back(f_per_fra);
-            last_track_num++;
+            last_track_num++;//特征点被跟踪的次数+1
         }
     }
 
-    if (frame_count < 2 || last_track_num < 20)//如果上一次track的点少于20 就添加点 第一个frame_count表示啥来着？滑窗内的帧数
-        return true;
+    if (frame_count < 2 || last_track_num < 20)//如果上一次track的点少于20 就添加点 第一个frame_count表示滑窗内的帧数
+        return true;//marg最老帧
 
+//[2]遍历每一个feature，计算能被当前帧和其前两帧共同看到的特征点视差
     for (auto &it_per_id : feature)
     {
+
         if (it_per_id.start_frame <= frame_count - 2 &&
             it_per_id.start_frame + int(it_per_id.feature_per_frame.size()) - 1 >= frame_count - 1)
         {
+            //计算特征点it_per_id在倒数第二帧和倒数第三帧之间的视差，并求所有视差的累加和
             parallax_sum += compensatedParallax2(it_per_id, frame_count);//开始补偿视差啦！
-            parallax_num++;
+            parallax_num++;//满足条件的特征点数量+1
         }
     }
 
     if (parallax_num == 0)
     {
-        return true;
+        return true;//marg最老帧
     }
     else
     {
+        //视差总和除以参与计算视差的特征点个数，表示每个特征点的平均视差值
         ROS_DEBUG("parallax_sum: %lf, parallax_num: %d", parallax_sum, parallax_num);
         ROS_DEBUG("current parallax: %lf", parallax_sum / parallax_num * FOCAL_LENGTH);
         return parallax_sum / parallax_num >= MIN_PARALLAX;
+        //当平均视差大于等于最小视差，返回true，marg最老帧，当平均视差小于最小视差,marg掉次新帧
     }
 }
 
@@ -355,6 +370,7 @@ void FeatureManager::removeFront(int frame_count)
 
 double FeatureManager::compensatedParallax2(const FeaturePerId &it_per_id, int frame_count)
 {
+    //传入第一个参数为滑窗内的每一个feature，第二参数表示当前帧的帧数
     //check the second last frame is keyframe or not刺新帧是否为关键帧
     //parallax betwwen seconde last frame and third last frame
     const FeaturePerFrame &frame_i = it_per_id.feature_per_frame[frame_count - 2 - it_per_id.start_frame];

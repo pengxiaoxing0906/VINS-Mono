@@ -131,24 +131,29 @@ void Estimator::processIMU(double dt, const Vector3d &linear_acceleration, const
 // 作用是建立每个特征点(camera_id,[x,y,z,u,v,vx,vy])构成的map，索引为feature_id
 void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>>>> &image, const std_msgs::Header &header)
 {
+  //image的数据类型分别表示feature_id,camera_id,点的x,y,z坐标，u,v坐标，在x,y方向上的跟踪速度
     ROS_DEBUG("new image coming ------------------------------------------");
     ROS_DEBUG("Adding feature points %lu", image.size());
-    if (f_manager.addFeatureCheckParallax(frame_count, image, td))
-        marginalization_flag = MARGIN_OLD;
+
+    //[1]根据视差来决定marg掉哪一帧，如果次新帧是关键帧，marg掉最老帧，如果次新帧不是关键帧,marg掉次新帧
+    if (f_manager.addFeatureCheckParallax(frame_count, image, td))//添加特征并检测视差
+        marginalization_flag = MARGIN_OLD;//MARFIN_OLD=0
     else
-        marginalization_flag = MARGIN_SECOND_NEW;
+        marginalization_flag = MARGIN_SECOND_NEW;//MARGIN_SECOND_NEW=1
 
     ROS_DEBUG("this frame is--------------------%s", marginalization_flag ? "reject" : "accept");
     ROS_DEBUG("%s", marginalization_flag ? "Non-keyframe" : "Keyframe");
     ROS_DEBUG("Solving %d", frame_count);
-    ROS_DEBUG("number of feature: %d", f_manager.getFeatureCount());
+    ROS_DEBUG("number of feature: %d", f_manager.getFeatureCount());//获取特征点被观察到它的图像帧的数量,也就是这个特征点出现过的次数
     Headers[frame_count] = header;
 
+    //【2】将图像数据、时间、临时预积分值存储到图像帧类中,ImageFrame这个类的定义在initial_alignment.h中
     ImageFrame imageframe(image, header.stamp.toSec());
     imageframe.pre_integration = tmp_pre_integration;
     all_image_frame.insert(make_pair(header.stamp.toSec(), imageframe));
     tmp_pre_integration = new IntegrationBase{acc_0, gyr_0, Bas[frame_count], Bgs[frame_count]};
 
+    //[3]如果ESTIMATE_EXTRINSIC == 2表示需要在线估计imu和camera之间的外参数
     if(ESTIMATE_EXTRINSIC == 2)
     {
         ROS_INFO("calibrating extrinsic param, rotation movement is needed");
@@ -167,9 +172,10 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         }
     }
 
-    if (solver_flag == INITIAL)
+    //[4]判断是初始化还是非线性优化
+    if (solver_flag == INITIAL)//初始化
     {
-        if (frame_count == WINDOW_SIZE)
+        if (frame_count == WINDOW_SIZE)//如果帧数已经到达滑动窗口设定的帧数，就进行优化
         {
             bool result = false;
             if( ESTIMATE_EXTRINSIC != 2 && (header.stamp.toSec() - initial_timestamp) > 0.1)
@@ -193,10 +199,10 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
             else
                 slideWindow();
         }
-        else
+        else//否则，就往滑动窗口中添加帧
             frame_count++;
     }
-    else
+    else//非线性优化
     {
         TicToc t_solve;
         solveOdometry();
@@ -1139,20 +1145,23 @@ void Estimator::slideWindowOld()
 
 void Estimator::setReloFrame(double _frame_stamp, int _frame_index, vector<Vector3d> &_match_points, Vector3d _relo_t, Matrix3d _relo_r)
 {
+    //[1]将传入的各参数进行赋值给重定位相关的变量
     relo_frame_stamp = _frame_stamp;
     relo_frame_index = _frame_index;
     match_points.clear();
     match_points = _match_points;
     prev_relo_t = _relo_t;
     prev_relo_r = _relo_r;
+
+    //【2】遍历滑动窗口，将当前传入的重定位帧的时间戳和滑动窗口中的进行对比
     for(int i = 0; i < WINDOW_SIZE; i++)
     {
         if(relo_frame_stamp == Headers[i].stamp.toSec())
         {
-            relo_frame_local_index = i;
-            relocalization_info = 1;
-            for (int j = 0; j < SIZE_POSE; j++)
-                relo_Pose[j] = para_Pose[i][j];
+            relo_frame_local_index = i;//记录滑窗中是那一帧重定位
+            relocalization_info = 1;//时间戳相等,重定位标志置1
+            for (int j = 0; j < SIZE_POSE; j++)//SIZE_POSE=7
+                relo_Pose[j] = para_Pose[i][j];// 把两个匹配的帧的位置和旋转四元数存储起来
         }
     }
 }
