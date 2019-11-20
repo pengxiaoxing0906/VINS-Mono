@@ -132,21 +132,21 @@ void FeatureManager::debugShow()
     }
 }
 
-vector<pair<Vector3d, Vector3d>> FeatureManager::getCorresponding(int frame_count_l, int frame_count_r)
+vector<pair<Vector3d, Vector3d>> FeatureManager::getCorresponding(int frame_count_l, int frame_count_r)//传入的参数为framecount-1.framecount
 {
     //FeaturePerId里有start_frame、feature_id、vector<FeaturePerFrame>
     vector<pair<Vector3d, Vector3d>> corres;
     for (auto &it : feature)
     {
-        if (it.start_frame <= frame_count_l && it.endFrame() >= frame_count_r)//这两参数啥意思没看懂
+        if (it.start_frame <= frame_count_l && it.endFrame() >= frame_count_r)
         {
             Vector3d a = Vector3d::Zero(), b = Vector3d::Zero();
             int idx_l = frame_count_l - it.start_frame;
             int idx_r = frame_count_r - it.start_frame;
 
-            a = it.feature_per_frame[idx_l].point;
+            a = it.feature_per_frame[idx_l].point;//vector<FeaturePerFrame> feature_per_frame
 
-            b = it.feature_per_frame[idx_r].point;
+            b = it.feature_per_frame[idx_r].point;//表示啥意思，这个point表示点在空间中的位置
             
             corres.push_back(make_pair(a, b));
         }

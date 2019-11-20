@@ -236,14 +236,14 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
 bool Estimator::initialStructure()
 {
     TicToc t_sfm;
-    //check imu observibility
+    //[1]check imu observibility
     {
         map<double, ImageFrame>::iterator frame_it;
         Vector3d sum_g;
         for (frame_it = all_image_frame.begin(), frame_it++; frame_it != all_image_frame.end(); frame_it++)
         {
             double dt = frame_it->second.pre_integration->sum_dt;
-            Vector3d tmp_g = frame_it->second.pre_integration->delta_v / dt;
+            Vector3d tmp_g = frame_it->second.pre_integration->delta_v / dt;//表示重力加速度
             sum_g += tmp_g;
         }
         Vector3d aver_g;
@@ -264,12 +264,12 @@ bool Estimator::initialStructure()
             //return false;
         }
     }
-    // global sfm
+    //【2】 global sfm
     Quaterniond Q[frame_count + 1];
     Vector3d T[frame_count + 1];
     map<int, Vector3d> sfm_tracked_points;
     vector<SFMFeature> sfm_f;
-    for (auto &it_per_id : f_manager.feature)
+    for (auto &it_per_id : f_manager.feature)//FeatureManager f_manager;//滑窗内所有点 定义在feature_manager.h中
     {
         int imu_j = it_per_id.start_frame - 1;
         SFMFeature tmp_feature;
@@ -277,8 +277,8 @@ bool Estimator::initialStructure()
         tmp_feature.id = it_per_id.feature_id;
         for (auto &it_per_frame : it_per_id.feature_per_frame)
         {
-            imu_j++;
-            Vector3d pts_j = it_per_frame.point;
+            imu_j++;//表示在一帧图像中特征点的数量？
+            Vector3d pts_j = it_per_frame.point;//特征点的空间位置
             tmp_feature.observation.push_back(make_pair(imu_j, Eigen::Vector2d{pts_j.x(), pts_j.y()}));
         }
         sfm_f.push_back(tmp_feature);
@@ -301,13 +301,13 @@ bool Estimator::initialStructure()
         return false;
     }
 
-    //solve pnp for all frame
+    //【3】solve pnp for all frame
     map<double, ImageFrame>::iterator frame_it;
     map<int, Vector3d>::iterator it;
     frame_it = all_image_frame.begin( );
     for (int i = 0; frame_it != all_image_frame.end( ); frame_it++)
     {
-        // provide initial guess
+        // provide initial guess初值估计
         cv::Mat r, rvec, t, D, tmp_r;
         if((frame_it->first) == Headers[i].stamp.toSec())
         {
@@ -330,43 +330,43 @@ bool Estimator::initialStructure()
         frame_it->second.is_key_frame = false;
         vector<cv::Point3f> pts_3_vector;
         vector<cv::Point2f> pts_2_vector;
-        for (auto &id_pts : frame_it->second.points)
+        for (auto &id_pts : frame_it->second.points)//frame_it.second数据类型为ImageFrame,points的类型为map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>> > > points;
         {
             int feature_id = id_pts.first;
             for (auto &i_p : id_pts.second)
             {
-                it = sfm_tracked_points.find(feature_id);
+                it = sfm_tracked_points.find(feature_id);// map<int, Vector3d> sfm_tracked_points;
                 if(it != sfm_tracked_points.end())
                 {
                     Vector3d world_pts = it->second;
                     cv::Point3f pts_3(world_pts(0), world_pts(1), world_pts(2));
-                    pts_3_vector.push_back(pts_3);
+                    pts_3_vector.push_back(pts_3);//准备pts_3_vector
                     Vector2d img_pts = i_p.second.head<2>();
                     cv::Point2f pts_2(img_pts(0), img_pts(1));
-                    pts_2_vector.push_back(pts_2);
+                    pts_2_vector.push_back(pts_2);//准备pts_2_vector
                 }
             }
         }
         cv::Mat K = (cv::Mat_<double>(3, 3) << 1, 0, 0, 0, 1, 0, 0, 0, 1);     
-        if(pts_3_vector.size() < 6)
+        if(pts_3_vector.size() < 6)//判断pnp所用点对数量是否足够
         {
             cout << "pts_3_vector size " << pts_3_vector.size() << endl;
             ROS_DEBUG("Not enough points for solve pnp !");
             return false;
         }
-        if (! cv::solvePnP(pts_3_vector, pts_2_vector, K, D, rvec, t, 1))
+        if (! cv::solvePnP(pts_3_vector, pts_2_vector, K, D, rvec, t, 1))//判断pnp能否求解出旋转向量rvec和平移向量t,D=Mat()，不太明白是啥
         {
             ROS_DEBUG("solve pnp fail!");
             return false;
         }
-        cv::Rodrigues(rvec, r);
+        cv::Rodrigues(rvec, r);//旋转向量转化成旋转矩阵形式
         MatrixXd R_pnp,tmp_R_pnp;
-        cv::cv2eigen(r, tmp_R_pnp);
+        cv::cv2eigen(r, tmp_R_pnp);//Mat类型转eigen类型
         R_pnp = tmp_R_pnp.transpose();
         MatrixXd T_pnp;
         cv::cv2eigen(t, T_pnp);
         T_pnp = R_pnp * (-T_pnp);
-        frame_it->second.R = R_pnp * RIC[0].transpose();
+        frame_it->second.R = R_pnp * RIC[0].transpose();//为啥还要chen
         frame_it->second.T = T_pnp;
     }
     if (visualInitialAlign())
