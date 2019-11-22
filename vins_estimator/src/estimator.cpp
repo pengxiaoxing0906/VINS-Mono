@@ -144,7 +144,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
     ROS_DEBUG("this frame is--------------------%s", marginalization_flag ? "reject" : "accept");
     ROS_DEBUG("%s", marginalization_flag ? "Non-keyframe" : "Keyframe");
     ROS_DEBUG("Solving %d", frame_count);
-    ROS_DEBUG("number of feature: %d", f_manager.getFeatureCount());//获取特征点被观察到它的图像帧的数量,也就是这个特征点出现过的次数
+    ROS_DEBUG("number of feature: %d", f_manager.getFeatureCount());//计算滑窗内被track过的特征点的数量
     Headers[frame_count] = header;
 
     //【2】将图像数据、时间、临时预积分值存储到图像帧类中,ImageFrame这个类的定义在initial_alignment.h中
@@ -233,7 +233,7 @@ void Estimator::processImage(const map<int, vector<pair<int, Eigen::Matrix<doubl
         last_P0 = Ps[0];
     }
 }
-bool Estimator::initialStructure()
+bool Estimator::initialStructure()//视觉惯导联合初始化函数
 {
     TicToc t_sfm;
     //[1]check imu observibility
@@ -267,7 +267,7 @@ bool Estimator::initialStructure()
     //【2】 global sfm
     Quaterniond Q[frame_count + 1];
     Vector3d T[frame_count + 1];
-    map<int, Vector3d> sfm_tracked_points;
+    map<int, Vector3d> sfm_tracked_points;//用于存储后面SFM重建出来的特征点的坐标
     vector<SFMFeature> sfm_f;
     for (auto &it_per_id : f_manager.feature)//FeatureManager f_manager;//滑窗内所有点 定义在feature_manager.h中
     {
@@ -277,16 +277,16 @@ bool Estimator::initialStructure()
         tmp_feature.id = it_per_id.feature_id;
         for (auto &it_per_frame : it_per_id.feature_per_frame)
         {
-            imu_j++;//表示在一帧图像中特征点的数量？
+            imu_j++;//表示在一帧图像中特征点的数量
             Vector3d pts_j = it_per_frame.point;//特征点的空间位置
-            tmp_feature.observation.push_back(make_pair(imu_j, Eigen::Vector2d{pts_j.x(), pts_j.y()}));
+            tmp_feature.observation.push_back(make_pair(imu_j, Eigen::Vector2d{pts_j.x(), pts_j.y()}));//取归一化的二维坐标和特征点的起始帧数打包push进SFMFeature类型的变量tmp_feature中
         }
-        sfm_f.push_back(tmp_feature);
+        sfm_f.push_back(tmp_feature);//sfm_f存储的是每个特征对应的所有的被观测数据
     } 
     Matrix3d relative_R;
     Vector3d relative_T;
     int l;
-    if (!relativePose(relative_R, relative_T, l))
+    if (!relativePose(relative_R, relative_T, l))//对帧间的相对位姿进行求解 参考链接：https://blog.csdn.net/jiweinanyi/article/details/10009546020191122上午
     {
         ROS_INFO("Not enough features or parallax; Move device around");
         return false;
