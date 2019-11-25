@@ -247,16 +247,16 @@ bool Estimator::initialStructure()//视觉惯导联合初始化函数
             sum_g += tmp_g;
         }
         Vector3d aver_g;
-        aver_g = sum_g * 1.0 / ((int)all_image_frame.size() - 1);
+        aver_g = sum_g * 1.0 / ((int)all_image_frame.size() - 1);//平均重力加速度
         double var = 0;
         for (frame_it = all_image_frame.begin(), frame_it++; frame_it != all_image_frame.end(); frame_it++)
         {
             double dt = frame_it->second.pre_integration->sum_dt;
             Vector3d tmp_g = frame_it->second.pre_integration->delta_v / dt;
-            var += (tmp_g - aver_g).transpose() * (tmp_g - aver_g);
+            var += (tmp_g - aver_g).transpose() * (tmp_g - aver_g);//每次测量的重力与平均重力值的差值的总和
             //cout << "frame g " << tmp_g.transpose() << endl;
         }
-        var = sqrt(var / ((int)all_image_frame.size() - 1));
+        var = sqrt(var / ((int)all_image_frame.size() - 1));//求这个指标代表什么啥呢？
         //ROS_WARN("IMU variation %f!", var);
         if(var < 0.25)
         {
@@ -273,7 +273,7 @@ bool Estimator::initialStructure()//视觉惯导联合初始化函数
     {
         int imu_j = it_per_id.start_frame - 1;
         SFMFeature tmp_feature;
-        tmp_feature.state = false;
+        tmp_feature.state = false;//是否三角化
         tmp_feature.id = it_per_id.feature_id;
         for (auto &it_per_frame : it_per_id.feature_per_frame)
         {
@@ -286,12 +286,12 @@ bool Estimator::initialStructure()//视觉惯导联合初始化函数
     Matrix3d relative_R;
     Vector3d relative_T;
     int l;
-    if (!relativePose(relative_R, relative_T, l))//对帧间的相对位姿进行求解 参考链接：https://blog.csdn.net/jiweinanyi/article/details/10009546020191122上午
+    if (!relativePose(relative_R, relative_T, l))//对帧间的相对位姿进行求解
     {
         ROS_INFO("Not enough features or parallax; Move device around");
         return false;
     }
-    GlobalSFM sfm;
+    GlobalSFM sfm;//参考链接 https://blog.csdn.net/jiweinanyi/article/details/100095460  20191125
     if(!sfm.construct(frame_count + 1, Q, T, l,
               relative_R, relative_T,
               sfm_f, sfm_tracked_points))
@@ -459,27 +459,28 @@ bool Estimator::visualInitialAlign()
 
 bool Estimator::relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l)
 {
-    // find previous frame which contians enough correspondance and parallex with newest frame
+    // [1]在滑窗中找出和最新帧有有足够的correspondance和视差的帧
     for (int i = 0; i < WINDOW_SIZE; i++)
     {
         vector<pair<Vector3d, Vector3d>> corres;
-        corres = f_manager.getCorresponding(i, WINDOW_SIZE);
+        corres = f_manager.getCorresponding(i, WINDOW_SIZE);//计算corres
         if (corres.size() > 20)
         {
             double sum_parallax = 0;
             double average_parallax;
             for (int j = 0; j < int(corres.size()); j++)
             {
-                Vector2d pts_0(corres[j].first(0), corres[j].first(1));
+                Vector2d pts_0(corres[j].first(0), corres[j].first(1));//取前两维坐标
                 Vector2d pts_1(corres[j].second(0), corres[j].second(1));
                 double parallax = (pts_0 - pts_1).norm();
                 sum_parallax = sum_parallax + parallax;
 
             }
-            average_parallax = 1.0 * sum_parallax / int(corres.size());
-            if(average_parallax * 460 > 30 && m_estimator.solveRelativeRT(corres, relative_R, relative_T))
+            average_parallax = 1.0 * sum_parallax / int(corres.size());//求平均视差
+            if(average_parallax * 460 > 30 && m_estimator.solveRelativeRT(corres, relative_R, relative_T))//求解当前帧和最后一帧之间的相对位姿,这里的R,T是在最后一帧相对于l ll帧坐标系的位姿估计
+
             {
-                l = i;
+                l = i;//把当前帧的索引赋值给变量l
                 ROS_DEBUG("average_parallax %f choose l %d and newest frame to triangulate the whole structure", average_parallax * 460, l);
                 return true;
             }

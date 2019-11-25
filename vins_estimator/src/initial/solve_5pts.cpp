@@ -195,19 +195,19 @@ bool MotionEstimator::solveRelativeRT(const vector<pair<Vector3d, Vector3d>> &co
     if (corres.size() >= 15)
     {
         vector<cv::Point2f> ll, rr;
-        for (int i = 0; i < int(corres.size()); i++)
+        for (int i = 0; i < int(corres.size()); i++)//准备Point2f类型的点
         {
             ll.push_back(cv::Point2f(corres[i].first(0), corres[i].first(1)));
             rr.push_back(cv::Point2f(corres[i].second(0), corres[i].second(1)));
         }
         cv::Mat mask;
-        cv::Mat E = cv::findFundamentalMat(ll, rr, cv::FM_RANSAC, 0.3 / 460, 0.99, mask);
+        cv::Mat E = cv::findFundamentalMat(ll, rr, cv::FM_RANSAC, 0.3 / 460, 0.99, mask);//利用对极约束求解本质矩阵E
         cv::Mat cameraMatrix = (cv::Mat_<double>(3, 3) << 1, 0, 0, 0, 1, 0, 0, 0, 1);
         cv::Mat rot, trans;
-        int inlier_cnt = cv::recoverPose(E, ll, rr, cameraMatrix, rot, trans, mask);
+        int inlier_cnt = cv::recoverPose(E, ll, rr, cameraMatrix, rot, trans, mask);//求解出旋转和平移
         //cout << "inlier_cnt " << inlier_cnt << endl;
 
-        Eigen::Matrix3d R;
+        Eigen::Matrix3d R;//R,T是在最后一帧相对于l帧坐标系的位姿估计
         Eigen::Vector3d T;
         for (int i = 0; i < 3; i++)
         {   
@@ -216,7 +216,7 @@ bool MotionEstimator::solveRelativeRT(const vector<pair<Vector3d, Vector3d>> &co
                 R(i, j) = rot.at<double>(i, j);
         }
 
-        Rotation = R.transpose();
+        Rotation = R.transpose();//求逆
         Translation = -R.transpose() * T;
         if(inlier_cnt > 12)
             return true;
