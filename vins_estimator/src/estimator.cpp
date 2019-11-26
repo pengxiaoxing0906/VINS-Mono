@@ -291,7 +291,7 @@ bool Estimator::initialStructure()//视觉惯导联合初始化函数
         ROS_INFO("Not enough features or parallax; Move device around");
         return false;
     }
-    GlobalSFM sfm;//参考链接 https://blog.csdn.net/jiweinanyi/article/details/100095460  20191125
+    GlobalSFM sfm;//参考链接 https://blog.csdn.net/jiweinanyi/article/details/100095460
     if(!sfm.construct(frame_count + 1, Q, T, l,
               relative_R, relative_T,
               sfm_f, sfm_tracked_points))
@@ -366,7 +366,7 @@ bool Estimator::initialStructure()//视觉惯导联合初始化函数
         MatrixXd T_pnp;
         cv::cv2eigen(t, T_pnp);
         T_pnp = R_pnp * (-T_pnp);
-        frame_it->second.R = R_pnp * RIC[0].transpose();//为啥还要chen
+        frame_it->second.R = R_pnp * RIC[0].transpose();
         frame_it->second.T = T_pnp;
     }
     if (visualInitialAlign())
