@@ -18,7 +18,7 @@ class ImageFrame
         {
             points = _points;
         };
-        map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>> > > points;
+        map<int, vector<pair<int, Eigen::Matrix<double, 7, 1>> > > points;//特征点id ,特征点投影的图像id,x,y,z,u,v,u_velocity,v_velocity
         double t;
         Matrix3d R;
         Vector3d T;

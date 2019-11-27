@@ -13,7 +13,7 @@ bool InitialEXRotation::CalibrationExRotation(vector<pair<Vector3d, Vector3d>> c
     frame_count++;
     Rc.push_back(solveRelativeR(corres));//求解两帧之间的相对位姿
     Rimu.push_back(delta_q_imu.toRotationMatrix());
-    Rc_g.push_back(ric.inverse() * delta_q_imu * ric);//不理解这是干嘛的
+    Rc_g.push_back(ric.inverse() * delta_q_imu * ric);//求出来的是相机上一帧到下一帧的旋转，此表达式由公式推导得出，理论上跟Rc相等
 
     Eigen::MatrixXd A(frame_count * 4, 4);//这一部分需要看理论知识
     A.setZero();
@@ -31,14 +31,14 @@ bool InitialEXRotation::CalibrationExRotation(vector<pair<Vector3d, Vector3d>> c
         ++sum_ok;
         Matrix4d L, R;
 
-        double w = Quaterniond(Rc[i]).w();
-        Vector3d q = Quaterniond(Rc[i]).vec();
+        double w = Quaterniond(Rc[i]).w();//取四元数的实部！！相机的旋转取左L
+        Vector3d q = Quaterniond(Rc[i]).vec();//取四元数的虚部
         L.block<3, 3>(0, 0) = w * Matrix3d::Identity() + Utility::skewSymmetric(q);
         L.block<3, 1>(0, 3) = q;
         L.block<1, 3>(3, 0) = -q.transpose();
         L(3, 3) = w;
 
-        Quaterniond R_ij(Rimu[i]);
+        Quaterniond R_ij(Rimu[i]);//imu的旋转取右R
         w = R_ij.w();
         q = R_ij.vec();
         R.block<3, 3>(0, 0) = w * Matrix3d::Identity() - Utility::skewSymmetric(q);
@@ -49,9 +49,9 @@ bool InitialEXRotation::CalibrationExRotation(vector<pair<Vector3d, Vector3d>> c
         A.block<4, 4>((i - 1) * 4, 0) = huber * (L - R);//加上huber权重
     }
 
-    JacobiSVD<MatrixXd> svd(A, ComputeFullU | ComputeFullV);
+    JacobiSVD<MatrixXd> svd(A, ComputeFullU | ComputeFullV);//svd分解
     Matrix<double, 4, 1> x = svd.matrixV().col(3);
-    Quaterniond estimated_R(x);
+    Quaterniond estimated_R(x);//上面估计的R为imu到相机的旋转
     ric = estimated_R.toRotationMatrix().inverse();
     //cout << svd.singularValues().transpose() << endl;
     //cout << ric << endl;
@@ -68,7 +68,7 @@ bool InitialEXRotation::CalibrationExRotation(vector<pair<Vector3d, Vector3d>> c
 
 Matrix3d InitialEXRotation::solveRelativeR(const vector<pair<Vector3d, Vector3d>> &corres)//求两帧之间的旋转及平移
 {
-    //如果点对数大于等于9，利用对积约束来求解相对运动
+    //如果点对数大于等于9，利用对极约束来求解相对运动
     if (corres.size() >= 9)
     {
         //[1]构建cv::Point2f类型的数据
@@ -95,7 +95,7 @@ Matrix3d InitialEXRotation::solveRelativeR(const vector<pair<Vector3d, Vector3d>
         double ratio2 = max(testTriangulation(ll, rr, R2, t1), testTriangulation(ll, rr, R2, t2));
         cv::Mat_<double> ans_R_cv = ratio1 > ratio2 ? R1 : R2;
 
-        //【5】为啥要这样做？
+        //【5】为啥要这样做？取转置
         Matrix3d ans_R_eigen;
         for (int i = 0; i < 3; i++)
             for (int j = 0; j < 3; j++)

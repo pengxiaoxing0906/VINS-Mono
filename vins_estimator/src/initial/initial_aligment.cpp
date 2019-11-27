@@ -1,6 +1,6 @@
 #include "initial_alignment.h"
 
-void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
+void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)//求解陀螺仪的偏置
 {
     Matrix3d A;
     Vector3d b;
@@ -11,7 +11,7 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
     map<double, ImageFrame>::iterator frame_j;
     for (frame_i = all_image_frame.begin(); next(frame_i) != all_image_frame.end(); frame_i++)
     {
-        frame_j = next(frame_i);
+        frame_j = next(frame_i);//j是i的下一帧
         MatrixXd tmp_A(3, 3);
         tmp_A.setZero();
         VectorXd tmp_b(3);
