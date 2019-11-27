@@ -267,7 +267,7 @@ bool Estimator::initialStructure()//视觉惯导联合初始化函数
     //【2】 global sfm
     Quaterniond Q[frame_count + 1];
     Vector3d T[frame_count + 1];
-    map<int, Vector3d> sfm_tracked_points;//用于存储后面SFM重建出来的特征点的坐标
+    map<int, Vector3d> sfm_tracked_points;//用于存储后面SFM重建出来3D点的坐标
     vector<SFMFeature> sfm_f;
     for (auto &it_per_id : f_manager.feature)//FeatureManager f_manager;//滑窗内所有点 定义在feature_manager.h中
     {
@@ -294,7 +294,7 @@ bool Estimator::initialStructure()//视觉惯导联合初始化函数
     GlobalSFM sfm;//参考链接 https://blog.csdn.net/jiweinanyi/article/details/100095460
     if(!sfm.construct(frame_count + 1, Q, T, l,
               relative_R, relative_T,
-              sfm_f, sfm_tracked_points))
+              sfm_f, sfm_tracked_points))//l表示上面选出的参考帧的索引
     {
         ROS_DEBUG("global SFM failed!");
         marginalization_flag = MARGIN_OLD;
@@ -302,6 +302,7 @@ bool Estimator::initialStructure()//视觉惯导联合初始化函数
     }
 
     //【3】solve pnp for all frame
+    //对于滑窗内每一帧图像，都跟上一步SFM得到的所有3D路标点进行cv::solvepnp求解位姿
     map<double, ImageFrame>::iterator frame_it;
     map<int, Vector3d>::iterator it;
     frame_it = all_image_frame.begin( );
@@ -312,7 +313,7 @@ bool Estimator::initialStructure()//视觉惯导联合初始化函数
         if((frame_it->first) == Headers[i].stamp.toSec())
         {
             frame_it->second.is_key_frame = true;
-            frame_it->second.R = Q[i].toRotationMatrix() * RIC[0].transpose();
+            frame_it->second.R = Q[i].toRotationMatrix() * RIC[0].transpose();//这里的R是针对哪个坐标系啊？
             frame_it->second.T = T[i];
             i++;
             continue;
@@ -369,6 +370,8 @@ bool Estimator::initialStructure()//视觉惯导联合初始化函数
         frame_it->second.R = R_pnp * RIC[0].transpose();
         frame_it->second.T = T_pnp;
     }
+
+    //视觉的初始化对齐，包括求Bg,初始化速度、重力和尺度因子，这一部分很多都是根据公式推导而来的
     if (visualInitialAlign())
         return true;
     else
@@ -384,7 +387,7 @@ bool Estimator::visualInitialAlign()
     TicToc t_g;
     VectorXd x;
     //solve scale
-    bool result = VisualIMUAlignment(all_image_frame, Bgs, g, x);
+    bool result = VisualIMUAlignment(all_image_frame, Bgs, g, x);//内容在initial_aligment.cpp中
     if(!result)
     {
         ROS_DEBUG("solve g failed!");
@@ -459,7 +462,7 @@ bool Estimator::visualInitialAlign()
 
 bool Estimator::relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l)
 {
-    // [1]在滑窗中找出和最新帧有有足够的correspondance和视差的帧
+    // 在滑窗中找出和当前帧帧有有足够的correspondance和视差的帧作为参考帧
     for (int i = 0; i < WINDOW_SIZE; i++)
     {
         vector<pair<Vector3d, Vector3d>> corres;
@@ -470,17 +473,17 @@ bool Estimator::relativePose(Matrix3d &relative_R, Vector3d &relative_T, int &l)
             double average_parallax;
             for (int j = 0; j < int(corres.size()); j++)
             {
-                Vector2d pts_0(corres[j].first(0), corres[j].first(1));//取前两维坐标
-                Vector2d pts_1(corres[j].second(0), corres[j].second(1));
+                Vector2d pts_0(corres[j].first(0), corres[j].first(1));//取参考帧前两维坐标
+                Vector2d pts_1(corres[j].second(0), corres[j].second(1));//取当前帧前两维坐标
                 double parallax = (pts_0 - pts_1).norm();
                 sum_parallax = sum_parallax + parallax;
 
             }
             average_parallax = 1.0 * sum_parallax / int(corres.size());//求平均视差
-            if(average_parallax * 460 > 30 && m_estimator.solveRelativeRT(corres, relative_R, relative_T))//求解当前帧和最后一帧之间的相对位姿,这里的R,T是在最后一帧相对于l ll帧坐标系的位姿估计
+            if(average_parallax * 460 > 30 && m_estimator.solveRelativeRT(corres, relative_R, relative_T))//求出当前帧到参考帧的T
 
             {
-                l = i;//把当前帧的索引赋值给变量l
+                l = i;//把参考帧的索引赋值给变量l
                 ROS_DEBUG("average_parallax %f choose l %d and newest frame to triangulate the whole structure", average_parallax * 460, l);
                 return true;
             }

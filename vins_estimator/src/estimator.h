@@ -119,7 +119,7 @@ class Estimator
     MarginalizationInfo *last_marginalization_info;//定义在marginalization_factor.h中
     vector<double *> last_marginalization_parameter_blocks;
 
-    map<double, ImageFrame> all_image_frame;
+    map<double, ImageFrame> all_image_frame;//double类型数据代表采样时间
     IntegrationBase *tmp_pre_integration;
 
     //relocalization variable

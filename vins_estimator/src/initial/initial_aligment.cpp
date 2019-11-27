@@ -1,10 +1,10 @@
 #include "initial_alignment.h"
 
-void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)//求解陀螺仪的偏置
+void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)//求解陀螺仪的偏置Bg
 {
     Matrix3d A;
     Vector3d b;
-    Vector3d delta_bg;
+    Vector3d delta_bg;//构建A*delta_bg=b的方程
     A.setZero();
     b.setZero();
     map<double, ImageFrame>::iterator frame_i;
@@ -16,7 +16,7 @@ void solveGyroscopeBias(map<double, ImageFrame> &all_image_frame, Vector3d* Bgs)
         tmp_A.setZero();
         VectorXd tmp_b(3);
         tmp_b.setZero();
-        Eigen::Quaterniond q_ij(frame_i->second.R.transpose() * frame_j->second.R);
+        Eigen::Quaterniond q_ij(frame_i->second.R.transpose() * frame_j->second.R);//Rc0<-bk   Rco<-bk+1
         tmp_A = frame_j->second.pre_integration->jacobian.template block<3, 3>(O_R, O_BG);//从雅克比矩阵中取出旋转对bg的导数dq_dbg
         tmp_b = 2 * (frame_j->second.pre_integration->delta_q.inverse() * q_ij).vec();
         A += tmp_A.transpose() * tmp_A;
@@ -147,7 +147,7 @@ bool LinearAlignment(map<double, ImageFrame> &all_image_frame, Vector3d &g, Vect
         double dt = frame_j->second.pre_integration->sum_dt;
 
         tmp_A.block<3, 3>(0, 0) = -dt * Matrix3d::Identity();
-        tmp_A.block<3, 3>(0, 6) = frame_i->second.R.transpose() * dt * dt / 2 * Matrix3d::Identity();
+        tmp_A.block<3, 3>(0, 6) = frame_i->second.R.transpose() * dt * dt / 2 * Matrix3d::Identity();//Rc0<-bk
         tmp_A.block<3, 1>(0, 9) = frame_i->second.R.transpose() * (frame_j->second.T - frame_i->second.T) / 100.0;     
         tmp_b.block<3, 1>(0, 0) = frame_j->second.pre_integration->delta_p + frame_i->second.R.transpose() * frame_j->second.R * TIC[0] - TIC[0];
         //cout << "delta_p   " << frame_j->second.pre_integration->delta_p.transpose() << endl;

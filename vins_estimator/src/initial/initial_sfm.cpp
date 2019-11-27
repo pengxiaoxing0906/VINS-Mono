@@ -6,7 +6,7 @@ void GlobalSFM::triangulatePoint(Eigen::Matrix<double, 3, 4> &Pose0, Eigen::Matr
 						Vector2d &point0, Vector2d &point1, Vector3d &point_3d)
 {
 	Matrix4d design_matrix = Matrix4d::Zero();
-	design_matrix.row(0) = point0[0] * Pose0.row(2) - Pose0.row(0);
+	design_matrix.row(0) = point0[0] * Pose0.row(2) - Pose0.row(0);//这么搞是什么个意思
 	design_matrix.row(1) = point0[1] * Pose0.row(2) - Pose0.row(1);
 	design_matrix.row(2) = point1[0] * Pose1.row(2) - Pose1.row(0);
 	design_matrix.row(3) = point1[1] * Pose1.row(2) - Pose1.row(1);
@@ -128,7 +128,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	q[l].y() = 0;
 	q[l].z() = 0;
 	T[l].setZero();
-	q[frame_num - 1] = q[l] * Quaterniond(relative_R);
+	q[frame_num - 1] = q[l] * Quaterniond(relative_R);//没看懂这表示啥意思，relative_R表示的是当前帧到参考帧l的旋转
 	T[frame_num - 1] = relative_T;
 	//cout << "init q_l " << q[l].w() << " " << q[l].vec().transpose() << endl;
 	//cout << "init t_l " << T[l].transpose() << endl;
@@ -155,7 +155,8 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 
 
 	//1: trangulate between l ----- frame_num - 1
-	//2: solve pnp l + 1; trangulate l + 1 ------- frame_num - 1; 
+	//2: solve pnp l + 1; trangulate l + 1 ------- frame_num - 1;
+	//对于参考帧和当前帧之间的某一帧，先用pnp求解该帧位姿，再三角化该帧与当前帧的路标点
 	for (int i = l; i < frame_num - 1 ; i++)
 	{
 		// solve pnp
@@ -175,11 +176,15 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 		// triangulate point based on the solve pnp result第i帧和第frame-1帧三角化
 		triangulateTwoFrames(i, Pose[i], frame_num - 1, Pose[frame_num - 1], sfm_f);
 	}
+
 	//3: triangulate l-----l+1 l+2 ... frame_num -2
+	//对于参考帧和当前帧之间的某一帧，三角化参考帧到该帧的路标点
 	for (int i = l + 1; i < frame_num - 1; i++)
 		triangulateTwoFrames(l, Pose[l], i, Pose[i], sfm_f);
+
 	//4: solve pnp l-1; triangulate l-1 ----- l
 	//             l-2              l-2 ----- l
+	//对于第一帧和参考帧之间的某一帧，先用pnp求解该帧位姿，然后三角化该帧到参考帧的路标点
 	for (int i = l - 1; i >= 0; i--)
 	{
 		//solve pnp
@@ -196,6 +201,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 		triangulateTwoFrames(i, Pose[i], l, Pose[l], sfm_f);
 	}
 	//5: triangulate all other points
+	//三角化其它未恢复的路标点
 	for (int j = 0; j < feature_num; j++)
 	{
 		if (sfm_f[j].state == true)
@@ -231,6 +237,7 @@ bool GlobalSFM::construct(int frame_num, Quaterniond* q, Vector3d* T, int l,
 	}
 */
 	//full BA
+	//BA优化滑窗内所有位姿
 	ceres::Problem problem;
 	ceres::LocalParameterization* local_parameterization = new ceres::QuaternionParameterization();
 	//cout << " begin full BA " << endl;
