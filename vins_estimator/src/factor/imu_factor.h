@@ -8,6 +8,17 @@
 #include "integration_base.h"
 
 #include <ceres/ceres.h>
+/*
+ *     15: 残差向量的长度(包括p,v,q,ba,bg) 每一个都3维 5个就是15维
+    7: 第1个优化参数的长度(para_Pose[i]) 旋转4维+平移3维
+    9: 第2个优化参数的长度(para_SpeedBias[i]) 速度3维+ba3维+bg3维
+    7: 第3个优化参数的长度(para_Pose[j])
+    9: 第4个优化参数的长度(para_SpeedBias[j])
+
+对于Evaluate输入double const *const *parameters, parameters[0], parameters[1],
+ parameters[2], parameters[3]分别对应4个输入参数, 它们的长度依次是7,9,7,9
+
+ */
 
 class IMUFactor : public ceres::SizedCostFunction<15, 7, 9, 7, 9>
 {
@@ -18,6 +29,7 @@ class IMUFactor : public ceres::SizedCostFunction<15, 7, 9, 7, 9>
     }
     virtual bool Evaluate(double const *const *parameters, double *residuals, double **jacobians) const
     //求imu的雅克比 输入残差residuals 15*1 ，4个优化变量 7维Pi Qi, 9维Vi Bai Bgi , 7维Pj Qj ,9维Vj Baj Bgj 残差对优化变量求导
+    //IMUFactor类重写Evaluate()函数输入parameter计算residual, 实际是调用IntegrationBase::evaluate()来真正计算残差
     {
 
         Eigen::Vector3d Pi(parameters[0][0], parameters[0][1], parameters[0][2]);

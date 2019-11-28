@@ -228,11 +228,11 @@ void FeatureManager::triangulate(Vector3d Ps[], Vector3d tic[], Matrix3d ric[])
         int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
 
         ROS_ASSERT(NUM_OF_CAM == 1);
-        Eigen::MatrixXd svd_A(2 * it_per_id.feature_per_frame.size(), 4);
+        Eigen::MatrixXd svd_A(2 * it_per_id.feature_per_frame.size(), 4);//每一帧可以产生两个约束
         int svd_idx = 0;
 
         Eigen::Matrix<double, 3, 4> P0;
-        Eigen::Vector3d t0 = Ps[imu_i] + Rs[imu_i] * tic[0];
+        Eigen::Vector3d t0 = Ps[imu_i] + Rs[imu_i] * tic[0];//这个坐标变换有点搞不清楚
         Eigen::Matrix3d R0 = Rs[imu_i] * ric[0];
         P0.leftCols<3>() = Eigen::Matrix3d::Identity();
         P0.rightCols<1>() = Eigen::Vector3d::Zero();
@@ -248,9 +248,9 @@ void FeatureManager::triangulate(Vector3d Ps[], Vector3d tic[], Matrix3d ric[])
             Eigen::Matrix<double, 3, 4> P;
             P.leftCols<3>() = R.transpose();
             P.rightCols<1>() = -R.transpose() * t;
-            Eigen::Vector3d f = it_per_frame.point.normalized();
-            svd_A.row(svd_idx++) = f[0] * P.row(2) - f[2] * P.row(0);
-            svd_A.row(svd_idx++) = f[1] * P.row(2) - f[2] * P.row(1);
+            Eigen::Vector3d f = it_per_frame.point.normalized();//(u,v,1)坐标
+            svd_A.row(svd_idx++) = f[0] * P.row(2) - f[2] * P.row(0);//构建svd_A每帧的第一个约束
+            svd_A.row(svd_idx++) = f[1] * P.row(2) - f[2] * P.row(1);//构建svd_A每帧的第二个约束
 
             if (imu_i == imu_j)
                 continue;

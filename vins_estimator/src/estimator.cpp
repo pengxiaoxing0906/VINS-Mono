@@ -409,7 +409,7 @@ bool Estimator::visualInitialAlign()
         dep[i] = -1;
     f_manager.clearDepth(dep);
 
-    //triangulat on cam pose , no tic
+    //triangulate on cam pose , no tic
     Vector3d TIC_TMP[NUM_OF_CAM];
     for(int i = 0; i < NUM_OF_CAM; i++)
         TIC_TMP[i].setZero();
@@ -691,16 +691,21 @@ bool Estimator::failureDetection()
 
 void Estimator::optimization()
 {
+    //[1]创建一个ceres Problem实例, loss_function定义为CauchyLoss.
     ceres::Problem problem;
     ceres::LossFunction *loss_function;
     //loss_function = new ceres::HuberLoss(1.0);
     loss_function = new ceres::CauchyLoss(1.0);
+
+    //[2]添加优化参数量, ceres中参数用ParameterBlock来表示,类似于g2o中的vertex,
+    // 这里的参数块有sliding windows中所有帧的para_Pose(7维) 和 para_SpeedBias(9维)
     for (int i = 0; i < WINDOW_SIZE + 1; i++)
     {
         ceres::LocalParameterization *local_parameterization = new PoseLocalParameterization();
-        problem.AddParameterBlock(para_Pose[i], SIZE_POSE, local_parameterization);
-        problem.AddParameterBlock(para_SpeedBias[i], SIZE_SPEEDBIAS);
+        problem.AddParameterBlock(para_Pose[i], SIZE_POSE, local_parameterization);//SIZE_POSE=7
+        problem.AddParameterBlock(para_SpeedBias[i], SIZE_SPEEDBIAS);//SIZE_SPEEDBIAS=9
     }
+    /*add vertex of: camera extrinsic */
     for (int i = 0; i < NUM_OF_CAM; i++)
     {
         ceres::LocalParameterization *local_parameterization = new PoseLocalParameterization();
@@ -719,25 +724,34 @@ void Estimator::optimization()
         //problem.SetParameterBlockConstant(para_Td[0]);
     }
 
+
+    //[3]添加残差，依次加入margin项,IMU项和视觉feature项. 每一项都是一个factor, 这是ceres的使用方法,
+    // 创建一个类继承ceres::CostFunction类, 重写Evaluate()函数定义residual的计算形式.
+    // 分别对应marginalization_factor.h, imu_factor.h, projection_factor.h中的MarginalizationInfo, IMUFactor, ProjectionFactor三个类
+
     TicToc t_whole, t_prepare;
     vector2double();
 
+    //先验
     if (last_marginalization_info)
     {
         // construct new marginlization_factor
         MarginalizationFactor *marginalization_factor = new MarginalizationFactor(last_marginalization_info);
         problem.AddResidualBlock(marginalization_factor, NULL,
-                                 last_marginalization_parameter_blocks);
+                                 last_marginalization_parameter_blocks);//添加先验残差
     }
 
+    //imu residual
     for (int i = 0; i < WINDOW_SIZE; i++)
     {
         int j = i + 1;
         if (pre_integrations[j]->sum_dt > 10.0)
             continue;
         IMUFactor* imu_factor = new IMUFactor(pre_integrations[j]);
-        problem.AddResidualBlock(imu_factor, NULL, para_Pose[i], para_SpeedBias[i], para_Pose[j], para_SpeedBias[j]);
+        problem.AddResidualBlock(imu_factor, NULL, para_Pose[i], para_SpeedBias[i], para_Pose[j], para_SpeedBias[j]);//添加imu的残差
     }
+
+    //视觉残差
     int f_m_cnt = 0;
     int feature_index = -1;
     for (auto &it_per_id : f_manager.feature)
@@ -765,7 +779,7 @@ void Estimator::optimization()
                     ProjectionTdFactor *f_td = new ProjectionTdFactor(pts_i, pts_j, it_per_id.feature_per_frame[0].velocity, it_per_frame.velocity,
                                                                      it_per_id.feature_per_frame[0].cur_td, it_per_frame.cur_td,
                                                                      it_per_id.feature_per_frame[0].uv.y(), it_per_frame.uv.y());
-                    problem.AddResidualBlock(f_td, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0], para_Feature[feature_index], para_Td[0]);
+                    problem.AddResidualBlock(f_td, loss_function, para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0], para_Feature[feature_index], para_Td[0]);//添加视觉残差
                     /*
                     double **para = new double *[5];
                     para[0] = para_Pose[imu_i];
@@ -814,7 +828,7 @@ void Estimator::optimization()
                     Vector3d pts_i = it_per_id.feature_per_frame[0].point;
                     
                     ProjectionFactor *f = new ProjectionFactor(pts_i, pts_j);
-                    problem.AddResidualBlock(f, loss_function, para_Pose[start], relo_Pose, para_Ex_Pose[0], para_Feature[feature_index]);
+                    problem.AddResidualBlock(f, loss_function, para_Pose[start], relo_Pose, para_Ex_Pose[0], para_Feature[feature_index]);//添加重定位的残差
                     retrive_feature_index++;
                 }     
             }
@@ -822,6 +836,8 @@ void Estimator::optimization()
 
     }
 
+    //[4]创建一个求解配置参数Option, 定义成DENSE_SCHUR,
+    // 优化算法用的”dog leg”, 设置最大迭代次数和最大求解时间. 创建一个求解描述Summary, 调用ceres::Solve()进行求解
     ceres::Solver::Options options;
 
     options.linear_solver_type = ceres::DENSE_SCHUR;
@@ -844,6 +860,7 @@ void Estimator::optimization()
 
     double2vector();
 
+    //[5]边缘化
     TicToc t_whole_marginalization;
     if (marginalization_flag == MARGIN_OLD)
     {
