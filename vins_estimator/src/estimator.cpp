@@ -697,19 +697,19 @@ void Estimator::optimization()
     //loss_function = new ceres::HuberLoss(1.0);
     loss_function = new ceres::CauchyLoss(1.0);
 
-    //[2]添加优化参数量, ceres中参数用ParameterBlock来表示,类似于g2o中的vertex,
+    //[2]添加优化参数量p,q,v,Ba,Bg, ceres中参数用ParameterBlock来表示,类似于g2o中的vertex,
     // 这里的参数块有sliding windows中所有帧的para_Pose(7维) 和 para_SpeedBias(9维)
     for (int i = 0; i < WINDOW_SIZE + 1; i++)
     {
         ceres::LocalParameterization *local_parameterization = new PoseLocalParameterization();
-        problem.AddParameterBlock(para_Pose[i], SIZE_POSE, local_parameterization);//SIZE_POSE=7
-        problem.AddParameterBlock(para_SpeedBias[i], SIZE_SPEEDBIAS);//SIZE_SPEEDBIAS=9
+        problem.AddParameterBlock(para_Pose[i], SIZE_POSE, local_parameterization);//SIZE_POSE=7 p和q
+        problem.AddParameterBlock(para_SpeedBias[i], SIZE_SPEEDBIAS);//SIZE_SPEEDBIAS=9 v,Ba,Bg
     }
     /*add vertex of: camera extrinsic */
     for (int i = 0; i < NUM_OF_CAM; i++)
     {
         ceres::LocalParameterization *local_parameterization = new PoseLocalParameterization();
-        problem.AddParameterBlock(para_Ex_Pose[i], SIZE_POSE, local_parameterization);
+        problem.AddParameterBlock(para_Ex_Pose[i], SIZE_POSE, local_parameterization);//qbc,pbc 相机和imu之间的外参
         if (!ESTIMATE_EXTRINSIC)
         {
             ROS_DEBUG("fix extinsic param");
@@ -730,18 +730,23 @@ void Estimator::optimization()
     // 分别对应marginalization_factor.h, imu_factor.h, projection_factor.h中的MarginalizationInfo, IMUFactor, ProjectionFactor三个类
 
     TicToc t_whole, t_prepare;
-    vector2double();
+    vector2double();//  因为ceres用的是double数组,所以下面用vector2double做类型转换
 
-    //先验
+    //添加边缘化残差
+    // last_marginalization_parameter_blocks指的就是和被边缘化的变量有约束关系的变量
+    // 这个marginalization的结构是始终存在的,随着marg结构的不断更新,last_marginalization_parameter_blocks对应的还是滑动窗口中的变量
+    // last_marginalization_info 就是Xb对应的测量Zb,将这个约束作为Xb的先验,
     if (last_marginalization_info)
     {
         // construct new marginlization_factor
         MarginalizationFactor *marginalization_factor = new MarginalizationFactor(last_marginalization_info);
         problem.AddResidualBlock(marginalization_factor, NULL,
-                                 last_marginalization_parameter_blocks);//添加先验残差
+                                 last_marginalization_parameter_blocks);//代价函数，核函数，待优化变量
     }
 
     //imu residual
+    // 这里IMU项和camera项之间是有一个系数的,这个系数就是他们各自的协方差矩阵,IMU的协方差就是预积分的协方差(IMUFacotor::Evaluate,中添加IMU协方差,求解jacibian矩阵),
+    // 而camera的测量残差则是一个固定的系数.
     for (int i = 0; i < WINDOW_SIZE; i++)
     {
         int j = i + 1;
@@ -757,13 +762,16 @@ void Estimator::optimization()
     for (auto &it_per_id : f_manager.feature)
     {
         it_per_id.used_num = it_per_id.feature_per_frame.size();
+        // 如果这个特征点被观测的次数大于等于2 并且首次观测到该特征点的帧小于滑动窗口倒数第3帧,这个特征点就可以建立一个残差
         if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
             continue;
  
         ++feature_index;
 
+        //得到观测到该特征点的首帧
         int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
-        
+
+        //得到首帧观测到的特征点的归一化相机坐标
         Vector3d pts_i = it_per_id.feature_per_frame[0].point;
 
         for (auto &it_per_frame : it_per_id.feature_per_frame)
@@ -773,6 +781,7 @@ void Estimator::optimization()
             {
                 continue;
             }
+            //得到第二个特征点
             Vector3d pts_j = it_per_frame.point;
             if (ESTIMATE_TD)
             {
@@ -862,23 +871,34 @@ void Estimator::optimization()
     double2vector();
 
     //[5]边缘化
+    //把之前存的残差部分加进来
+    //把与当前要marg掉的帧的所有相关残差项加进来,IMU,vision.
+    //preMarginalize-> 调用Evaluate计算所有ResidualBlock的残差和雅克比,parameter_block_data是margniliazation中存参数块的容器
+    //多线程构造Hx=b的结构,H是边缘化后的结果,First Estimate Jacobian,在X0处进行线性化,
+    //marg结束,调整参数块在下一次window中对应的位置
     TicToc t_whole_marginalization;
-    if (marginalization_flag == MARGIN_OLD)
+    if (marginalization_flag == MARGIN_OLD)//marg最老帧
     {
         MarginalizationInfo *marginalization_info = new MarginalizationInfo();
         vector2double();
 
+        //先验误差会一直保存，而不是只使用一次
+        // 如果上一次边缘化的信息存在
+        //要边缘化的参数块是 para_Pose[0] para_SpeedBias[0] 以及 para_Feature[feature_index](滑窗内的第feature_index个点的逆深度)
         if (last_marginalization_info)
         {
             vector<int> drop_set;
+            //查询last_marginalization_parameter_blocks中是首帧状态量的序号
             for (int i = 0; i < static_cast<int>(last_marginalization_parameter_blocks.size()); i++)
             {
                 if (last_marginalization_parameter_blocks[i] == para_Pose[0] ||
                     last_marginalization_parameter_blocks[i] == para_SpeedBias[0])
                     drop_set.push_back(i);
             }
+            // 构造边缘化的的Factor
             // construct new marginlization_factor
             MarginalizationFactor *marginalization_factor = new MarginalizationFactor(last_marginalization_info);
+            // 添加上一次边缘化的参数块
             ResidualBlockInfo *residual_block_info = new ResidualBlockInfo(marginalization_factor, NULL,
                                                                            last_marginalization_parameter_blocks,
                                                                            drop_set);
@@ -887,6 +907,7 @@ void Estimator::optimization()
         }
 
         {
+            //添加IMU的先验，只包含边缘化帧的IMU测量残差
             if (pre_integrations[1]->sum_dt < 10.0)
             {
                 IMUFactor* imu_factor = new IMUFactor(pre_integrations[1]);
@@ -898,25 +919,26 @@ void Estimator::optimization()
         }
 
         {
+            //添加视觉的先验，只添加起始帧是旧帧且观测次数大于2的Features
             int feature_index = -1;
-            for (auto &it_per_id : f_manager.feature)
+            for (auto &it_per_id : f_manager.feature)// 遍历滑窗内所有的Features
             {
-                it_per_id.used_num = it_per_id.feature_per_frame.size();
-                if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2))
+                it_per_id.used_num = it_per_id.feature_per_frame.size(); // 该特征点被观测到的次数
+                if (!(it_per_id.used_num >= 2 && it_per_id.start_frame < WINDOW_SIZE - 2)) //Feature的观测次数不小于2次，且起始帧不属于最后两帧
                     continue;
 
                 ++feature_index;
 
                 int imu_i = it_per_id.start_frame, imu_j = imu_i - 1;
-                if (imu_i != 0)
+                if (imu_i != 0)//只选择被边缘化的帧的Features，在这里是marg最老帧就是滑窗内的第0帧，当这个特征点被观测的起始帧不是第0帧，就不marg.
                     continue;
 
-                Vector3d pts_i = it_per_id.feature_per_frame[0].point;
+                Vector3d pts_i = it_per_id.feature_per_frame[0].point;// 得到该Feature在起始帧下的归一化坐标
 
                 for (auto &it_per_frame : it_per_id.feature_per_frame)
                 {
                     imu_j++;
-                    if (imu_i == imu_j)
+                    if (imu_i == imu_j) // 不需要起始观测帧
                         continue;
 
                     Vector3d pts_j = it_per_frame.point;
@@ -942,6 +964,8 @@ void Estimator::optimization()
             }
         }
 
+        //将三个ResidualBlockInfo中的参数块综合到marginalization_info中
+        // 计算所有ResidualBlock(残差项)的残差和雅克比,parameter_block_data是参数块的容器
         TicToc t_pre_margin;
         marginalization_info->preMarginalize();
         ROS_DEBUG("pre marginalization %f ms", t_pre_margin.toc());
@@ -950,6 +974,8 @@ void Estimator::optimization()
         marginalization_info->marginalize();
         ROS_DEBUG("marginalization %f ms", t_margin.toc());
 
+        //将滑窗里关键帧位姿移位
+        // 这里是保存了所有状态量的信息
         std::unordered_map<long, double *> addr_shift;
         for (int i = 1; i <= WINDOW_SIZE; i++)
         {
@@ -970,7 +996,8 @@ void Estimator::optimization()
         last_marginalization_parameter_blocks = parameter_blocks;
         
     }
-    else
+        //如果倒数第二帧不是关键帧，保留该帧的IMU测量,去掉该帧的visual，premarg，marg,滑动窗口移动
+    else//marg次新帧
     {
         if (last_marginalization_info &&
             std::count(std::begin(last_marginalization_parameter_blocks), std::end(last_marginalization_parameter_blocks), para_Pose[WINDOW_SIZE - 1]))
