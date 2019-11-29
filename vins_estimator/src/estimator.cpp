@@ -802,6 +802,7 @@ void Estimator::optimization()
     ROS_DEBUG("visual measurement count: %d", f_m_cnt);
     ROS_DEBUG("prepare for ceres: %f", t_prepare.toc());
 
+    //重定位残差
     if(relocalization_info)
     {
         //printf("set relocalization factor! \n");
