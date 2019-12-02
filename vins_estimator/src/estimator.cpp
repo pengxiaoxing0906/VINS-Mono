@@ -978,7 +978,7 @@ void Estimator::optimization()
         ROS_DEBUG("pre marginalization %f ms", t_pre_margin.toc());
         
         TicToc t_margin;
-        marginalization_info->marginalize();
+        marginalization_info->marginalize();//边缘化，schur补操作在这里
         ROS_DEBUG("marginalization %f ms", t_margin.toc());
 
         //将滑窗里关键帧位姿移位
@@ -986,7 +986,7 @@ void Estimator::optimization()
         std::unordered_map<long, double *> addr_shift;
         for (int i = 1; i <= WINDOW_SIZE; i++)
         {
-            addr_shift[reinterpret_cast<long>(para_Pose[i])] = para_Pose[i - 1];
+            addr_shift[reinterpret_cast<long>(para_Pose[i])] = para_Pose[i - 1];//不理解这个移动方式
             addr_shift[reinterpret_cast<long>(para_SpeedBias[i])] = para_SpeedBias[i - 1];
         }
         for (int i = 0; i < NUM_OF_CAM; i++)
@@ -998,9 +998,9 @@ void Estimator::optimization()
         vector<double *> parameter_blocks = marginalization_info->getParameterBlocks(addr_shift);
 
         if (last_marginalization_info)
-            delete last_marginalization_info;
-        last_marginalization_info = marginalization_info;
-        last_marginalization_parameter_blocks = parameter_blocks;
+            delete last_marginalization_info;//删除掉上一次的marg相关的内容
+        last_marginalization_info = marginalization_info;//marg相关内容的递归
+        last_marginalization_parameter_blocks = parameter_blocks;//优化变量的递归，这里面仅仅是指针
         
     }
         //如果倒数第二帧不是关键帧，保留该帧的IMU测量,去掉该帧的visual，premarg，marg,滑动窗口移动

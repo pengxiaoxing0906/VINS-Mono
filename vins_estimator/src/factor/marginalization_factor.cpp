@@ -182,7 +182,7 @@ void MarginalizationInfo::marginalize()
         pos += localSize(parameter_block_size[it.first]);
     }
 
-    m = pos;
+    m = pos;//需要marg掉的变量个数
 
     for (const auto &it : parameter_block_size)
     {
@@ -193,7 +193,7 @@ void MarginalizationInfo::marginalize()
         }
     }
 
-    n = pos - m;
+    n = pos - m;//要保留的优化变量个数
 
     //ROS_DEBUG("marginalization, pos: %d, m: %d, n: %d, size: %d", pos, m, n, (int)parameter_block_idx.size());
 
@@ -230,12 +230,12 @@ void MarginalizationInfo::marginalize()
     */
     //multi thread
 
-
+//函数会通过多线程快速构造各个残差对应的各个优化变量的信息矩阵（雅克比和残差前面都已经求出来了），然后加起来
     TicToc t_thread_summing;
     pthread_t tids[NUM_THREADS];
     ThreadsStruct threadsstruct[NUM_THREADS];
     int i = 0;
-    for (auto it : factors)
+    for (auto it : factors)//将各个残差块的雅克比矩阵分配到各个线程中去
     {
         threadsstruct[i].sub_factors.push_back(it);
         i++;
@@ -274,14 +274,17 @@ void MarginalizationInfo::marginalize()
     Eigen::MatrixXd Amm_inv = saes.eigenvectors() * Eigen::VectorXd((saes.eigenvalues().array() > eps).select(saes.eigenvalues().array().inverse(), 0)).asDiagonal() * saes.eigenvectors().transpose();
     //printf("error1: %f\n", (Amm * Amm_inv - Eigen::MatrixXd::Identity(m, m)).sum());
 
+    //schur补
     Eigen::VectorXd bmm = b.segment(0, m);
     Eigen::MatrixXd Amr = A.block(0, m, m, n);
     Eigen::MatrixXd Arm = A.block(m, 0, n, m);
     Eigen::MatrixXd Arr = A.block(m, m, n, n);
     Eigen::VectorXd brr = b.segment(m, n);
-    A = Arr - Arm * Amm_inv * Amr;
+    A = Arr - Arm * Amm_inv * Amr;//marg掉xm的新H矩阵
     b = brr - Arm * Amm_inv * bmm;
 
+    //从边缘化后的信息矩阵中恢复出来雅克比矩阵linearized_jacobians和残差linearized_residuals，
+    // 这两者会作为先验残差带入到下一轮的先验残差的雅克比和残差的计算当中去
     Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> saes2(A);
     Eigen::VectorXd S = Eigen::VectorXd((saes2.eigenvalues().array() > eps).select(saes2.eigenvalues().array(), 0));
     Eigen::VectorXd S_inv = Eigen::VectorXd((saes2.eigenvalues().array() > eps).select(saes2.eigenvalues().array().inverse(), 0));
