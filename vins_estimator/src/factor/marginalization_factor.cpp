@@ -90,39 +90,41 @@ void MarginalizationInfo::addResidualBlockInfo(ResidualBlockInfo *residual_block
 {
     factors.emplace_back(residual_block_info);
 
-    std::vector<double *> &parameter_blocks = residual_block_info->parameter_blocks;
+    std::vector<double *> &parameter_blocks = residual_block_info->parameter_blocks;//parameter_blocks里面放的是marg相关的变量
     std::vector<int> parameter_block_sizes = residual_block_info->cost_function->parameter_block_sizes();
 
-    for (int i = 0; i < static_cast<int>(residual_block_info->parameter_blocks.size()); i++)
+    for (int i = 0; i < static_cast<int>(residual_block_info->parameter_blocks.size()); i++)//优化变量
     {
-        double *addr = parameter_blocks[i];
-        int size = parameter_block_sizes[i];
-        parameter_block_size[reinterpret_cast<long>(addr)] = size;
+        double *addr = parameter_blocks[i];//指向数据的指针
+        int size = parameter_block_sizes[i];//地址指向的这个数据的长度
+        parameter_block_size[reinterpret_cast<long>(addr)] = size;//将指针强转为数据的地址
     }
 
-    for (int i = 0; i < static_cast<int>(residual_block_info->drop_set.size()); i++)
+    for (int i = 0; i < static_cast<int>(residual_block_info->drop_set.size()); i++)//待边缘化的变量
     {
-        double *addr = parameter_blocks[residual_block_info->drop_set[i]];
-        parameter_block_idx[reinterpret_cast<long>(addr)] = 0;
+        double *addr = parameter_blocks[residual_block_info->drop_set[i]];//待边缘化的变量的id
+        parameter_block_idx[reinterpret_cast<long>(addr)] = 0;//将需要marg的变量的id存入parameter_block_idx
+        //parameter_block_idx中仅仅有待边缘化的优化变量的内存地址的key，而且其对应value全部为0
     }
 }
 
 void MarginalizationInfo::preMarginalize()
 {
-    for (auto it : factors)
+    for (auto it : factors)//在前面的addResidualBlockInfo中会将不同的残差块加入到factor中
     {
-        it->Evaluate();
+        it->Evaluate();//利用多态性分别计算所有状态变量构成的残差和雅克比矩阵
+
 
         std::vector<int> block_sizes = it->cost_function->parameter_block_sizes();
         for (int i = 0; i < static_cast<int>(block_sizes.size()); i++)
         {
-            long addr = reinterpret_cast<long>(it->parameter_blocks[i]);
+            long addr = reinterpret_cast<long>(it->parameter_blocks[i]);//优化变量的地址
             int size = block_sizes[i];
-            if (parameter_block_data.find(addr) == parameter_block_data.end())
+            if (parameter_block_data.find(addr) == parameter_block_data.end())//parameter_block_data是整个优化变量的数据
             {
                 double *data = new double[size];
-                memcpy(data, it->parameter_blocks[i], sizeof(double) * size);
-                parameter_block_data[addr] = data;
+                memcpy(data, it->parameter_blocks[i], sizeof(double) * size);//重新开辟一块内存
+                parameter_block_data[addr] = data;//通过之前的优化变量的数据的地址和新开辟的内存数据进行关联
             }
         }
     }
@@ -174,7 +176,7 @@ void* ThreadsConstructA(void* threadsstruct)
 void MarginalizationInfo::marginalize()
 {
     int pos = 0;
-    for (auto &it : parameter_block_idx)
+    for (auto &it : parameter_block_idx)//遍历待marg的优化变量的内存地址
     {
         it.second = pos;
         pos += localSize(parameter_block_size[it.first]);

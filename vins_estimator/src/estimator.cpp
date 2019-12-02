@@ -880,19 +880,25 @@ void Estimator::optimization()
     if (marginalization_flag == MARGIN_OLD)//marg最老帧
     {
         MarginalizationInfo *marginalization_info = new MarginalizationInfo();
-        vector2double();
+        vector2double();//ceres中变量必须用数组类型，所以需要进行数据类型转换成我之前一直迷惑的二维数组。。。哈哈哈
+        //para_Pose（6维，相机位姿）、
+        //para_SpeedBias（9维，相机速度、加速度偏置、角速度偏置）、
+        //para_Ex_Pose（6维、相机IMU外参）、
+        //para_Feature（1维，特征点深度）、
+        //para_Td（1维，标定同步时间）
 
         //先验误差会一直保存，而不是只使用一次
         // 如果上一次边缘化的信息存在
         //要边缘化的参数块是 para_Pose[0] para_SpeedBias[0] 以及 para_Feature[feature_index](滑窗内的第feature_index个点的逆深度)
+
+        //添加上一次的先验残差
         if (last_marginalization_info)
         {
-            vector<int> drop_set;
-            //查询last_marginalization_parameter_blocks中是首帧状态量的序号
-            for (int i = 0; i < static_cast<int>(last_marginalization_parameter_blocks.size()); i++)
+            vector<int> drop_set;//待marg的优化变量id
+            for (int i = 0; i < static_cast<int>(last_marginalization_parameter_blocks.size()); i++)//last_marginalization_parameter_blocks是上一轮留下来的残差块
             {
                 if (last_marginalization_parameter_blocks[i] == para_Pose[0] ||
-                    last_marginalization_parameter_blocks[i] == para_SpeedBias[0])
+                    last_marginalization_parameter_blocks[i] == para_SpeedBias[0])//需要marg掉的优化变量，也就是滑窗内第一个变量
                     drop_set.push_back(i);
             }
             // 构造边缘化的的Factor
@@ -906,6 +912,7 @@ void Estimator::optimization()
             marginalization_info->addResidualBlockInfo(residual_block_info);
         }
 
+
         {
             //添加IMU的先验，只包含边缘化帧的IMU测量残差
             if (pre_integrations[1]->sum_dt < 10.0)
@@ -913,7 +920,7 @@ void Estimator::optimization()
                 IMUFactor* imu_factor = new IMUFactor(pre_integrations[1]);
                 ResidualBlockInfo *residual_block_info = new ResidualBlockInfo(imu_factor, NULL,
                                                                            vector<double *>{para_Pose[0], para_SpeedBias[0], para_Pose[1], para_SpeedBias[1]},
-                                                                           vector<int>{0, 1});
+                                                                           vector<int>{0, 1});//其待边缘化变量是para_Pose[0], para_SpeedBias[0]，也是第一政相关的变量都作为边缘化的对象
                 marginalization_info->addResidualBlockInfo(residual_block_info);
             }
         }
@@ -949,7 +956,7 @@ void Estimator::optimization()
                                                                           it_per_id.feature_per_frame[0].uv.y(), it_per_frame.uv.y());
                         ResidualBlockInfo *residual_block_info = new ResidualBlockInfo(f_td, loss_function,
                                                                                         vector<double *>{para_Pose[imu_i], para_Pose[imu_j], para_Ex_Pose[0], para_Feature[feature_index], para_Td[0]},
-                                                                                        vector<int>{0, 3});
+                                                                                        vector<int>{0, 3});//其待边缘化变量是para_Pose[imu_i]和para_Feature[feature_index]位姿和相关的特征点
                         marginalization_info->addResidualBlockInfo(residual_block_info);
                     }
                     else
