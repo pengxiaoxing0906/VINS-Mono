@@ -178,15 +178,20 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
     * @param[in]    maxCorners=MAX_CNT - forw_pts.size() 返回的角点的数量的最大值
     * @param[in]    qualityLevel=0.01 角点质量水平的最低阈值（范围为0到1，质量最高角点的水平为1），小于该阈值的角点被拒绝
     * @param[in]    minDistance=MIN_DIST 返回角点之间欧式距离的最小值
-    * @param[in]    _mask=mask 和输入图像具有相同大小，类型必须为CV_8UC1,用来描述图像中感兴趣的区域，只在感兴趣区域中检测角点
+    * @param[in]    _mask=mask 和输入图像具有相同大小，类型必须为CV_8UC1,用来描述图像中感兴趣的区域，只在感兴趣区域中检测角点 mask值为0处不进行角点检测
     * @param[in]    blockSize：计算协方差矩阵时的窗口大小
     * @param[in]    useHarrisDetector：指示是否使用Harris角点检测，如不指定，则计算shi-tomasi角点
-    * @param[in]    harrisK：Harris角点检测需要的k值
+    * @param[in]    harrisK：Harris角点检测需要的k值,一般为0.04
     * @return      void
     */
 
 
-            cv::goodFeaturesToTrack(forw_img, n_pts, MAX_CNT - forw_pts.size(), 0.01, MIN_DIST, mask);//MAX_CNT=150
+            cv::goodFeaturesToTrack(forw_img, n_pts, MAX_CNT - forw_pts.size(), 0.01, MIN_DIST, mask,3,true,0.04);//harris角点检测
+            //cv::goodFeaturesToTrack(forw_img, n_pts, MAX_CNT - forw_pts.size(), 0.01, MIN_DIST, mask,3,false);//shi-Tomas角点检测
+            //指定亚像素计算迭代标注
+            cv::TermCriteria criteria = cv::TermCriteria(cv::TermCriteria::MAX_ITER + cv::TermCriteria::EPS,40,0.01);
+            //亚像素检测,目的是优化角点，使角点的精度达到亚像素级别
+            cv::cornerSubPix(forw_img, n_pts, cv::Size(5, 5), cv::Size(-1, -1), criteria);
         }
         else
             n_pts.clear();//n_pts是用来存储提取的新的特征点的，在这个条件下表示不需要提取新的特征点，将上一帧中提取的点clear掉
