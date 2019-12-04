@@ -81,21 +81,16 @@ Matrix3d InitialEXRotation::solveRelativeR(const vector<pair<Vector3d, Vector3d>
 
        /*
         * 目前问题汇总
-        * 1. sigma代表啥，从哪里来
-        * 2. corres是谁对谁的旋转
+        * 1. sigma=1.0，RANSAC最大迭代次数200
+        * 2. corres是谁对谁的旋转 framecount-1,framecount 就是参考帧到当前帧
         * 3. 如何从H矩阵恢复出R和t
         *
         */
 
 
-
-
-
-
-
-
         //【2】求解出本质矩阵和H矩阵并分别计算得分选择合适的模型分解求出旋转和平移
         float SE,SH;
+        double sigma=1.0;
         Mat K;//相机内参矩阵
         //求解本质矩阵E
         cv::Mat E = cv::findEssentialMat(ll, rr);
@@ -103,14 +98,15 @@ Matrix3d InitialEXRotation::solveRelativeR(const vector<pair<Vector3d, Vector3d>
         float SE=CheckEssential(E,sigma);
 
         //求解单应矩阵H
-        cv::Mat H=cv::findHomography(ll,rr,RANSAC,3,noArray(),2000,0.99);//2000代表RANSAC的最大迭代次数，0.99代表可信度
+        cv::Mat H=cv::findHomography(ll,rr,RANSAC,3,noArray(),200,0.99);//200代表RANSAC的最大迭代次数，0.99代表可信度
         //计算SH分数
-        float SH=CheckHomography(SH,H,sigma);
+        float SH=CheckHomography(H,sigma);
 
         float RH = SH/(SH+SF);//定义ratio
         if(RH>0.40)
         {
             //选择用H矩阵来恢复R,t
+
            DecomposeH(H);
 
         }
@@ -135,7 +131,7 @@ Matrix3d InitialEXRotation::solveRelativeR(const vector<pair<Vector3d, Vector3d>
         }
 
 
-        //【5】为啥要这样做？取转置
+        //【5】之前求的是参考帧到当前帧的变换，求转置等于求逆，即是当前帧到参考帧的变换
         Matrix3d ans_R_eigen;
         for (int i = 0; i < 3; i++)
             for (int j = 0; j < 3; j++)
