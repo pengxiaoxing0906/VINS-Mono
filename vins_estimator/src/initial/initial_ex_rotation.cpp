@@ -184,10 +184,11 @@ void InitialEXRotation::decomposeE(cv::Mat E,
     t1 = svd.u.col(2);
     t2 = -svd.u.col(2);
 }
- float InitialEXRotation::CheckEssential(double& score,float sigma)
+ float InitialEXRotation::CheckEssential(cv::Mat E,float sigma)
  {
     // const int N = mvMatches12.size();
     //输入K或者传入K矩阵
+     cv::Mat K=(Mat_<double>(3,3)<<461.6,0,363.0,0,460.3,248.1,0,0,1);
     cv::Mat Kinv=K.inv();
     cv::Mat F=Kinv.transpose()*E*Kinv;
 
@@ -210,9 +211,10 @@ void InitialEXRotation::decomposeE(cv::Mat E,
 
      const float invSigmaSquare = 1.0/(sigma*sigma);
 
+     //corres是vector3d 没有归一化
      for(int i=0; i< int(corres.size()); i++)
      {
-         bool bIn = true;
+         //bool bIn = true;
 
          //const cv::KeyPoint &kp1 = mvKeys1[mvMatches12[i].first];
          //const cv::KeyPoint &kp2 = mvKeys2[mvMatches12[i].second];
@@ -221,10 +223,17 @@ void InitialEXRotation::decomposeE(cv::Mat E,
          //const float v1 = kp1.pt.y;
          //const float u2 = kp2.pt.x;
          //const float v2 = kp2.pt.y;
-         const float u1 = corres[i].first(0);
-         const float v1 = corres[i].first(1);
-         const float u2 = corres[i].second(0);
-         const float v2 = corres[i].second(1);
+
+         //应该是用像素坐标，而不是归一化坐标
+         Vector3d P1=(corres[i].first(0),corres[i].first(1),corres[i].first(2));
+         Vector3d P2=(corres[i].second(0),corres[i].second(1),corres[i].second(2));
+         Vector3d p1=K*P1;//相机坐标系转像素坐标系
+         Vector3d p2=k*P2;
+
+         const float u1 =p1.x;//像素坐标
+         const float v1 =p1.y;
+         const float u2 =p2.x;
+         const float v2 =p2.y;
 
          // Reprojection error in second image
          // l2=F21x1=(a2,b2,c2)
@@ -233,18 +242,20 @@ void InitialEXRotation::decomposeE(cv::Mat E,
          const float b2 = f21*u1+f22*v1+f23;
          const float c2 = f31*u1+f32*v1+f33;
 
-         const float num2 = a2*u2+b2*v2+c2;
+         const float num2 = a2*u2+b2*v2+c2;//理论上这个值应该为0，点(u2,v2,1)到极线a2*x+b2*y+c2=0的距离 不理解
 
          const float squareDist1 = num2*num2/(a2*a2+b2*b2);
 
          const float chiSquare1 = squareDist1*invSigmaSquare;
 
-         if(chiSquare1>th)
-             bIn = false;
+         if(chiSquare1>th) {
+            // bIn = false;
+             score = 0
+         }
          else
              score += thScore - chiSquare1;
 
-         // Reprojection error in second image
+         // Reprojection error in first image
          // l1 =x2tF21=(a1,b1,c1)
 
          const float a1 = f11*u2+f21*v2+f31;
@@ -258,7 +269,12 @@ void InitialEXRotation::decomposeE(cv::Mat E,
          const float chiSquare2 = squareDist2*invSigmaSquare;
 
          if(chiSquare2>th)
-             bIn = false;
+         {
+            // bIn = false;
+             score=0;
+
+         }
+
          else
              score += thScore - chiSquare2;
 
@@ -271,7 +287,7 @@ void InitialEXRotation::decomposeE(cv::Mat E,
      return score;
 
  }
-float InitialEXRotation::CheckHomography(double &score, cv::Mat &H, float sigma)
+float InitialEXRotation::CheckHomography(cv::Mat &H, float sigma)
 {
     cv::Mat Hinv;
     Hinv=H.inv();
@@ -306,17 +322,27 @@ float InitialEXRotation::CheckHomography(double &score, cv::Mat &H, float sigma)
 
     for (int i = 0; i < int(corres.size()); i++)//匹配点对的数量
     {
-        bool bIn = true;
+       // bool bIn = true;
 
        // const cv::KeyPoint &kp1 = mvKeys1[mvMatches12[i].first];
         //const cv::KeyPoint &kp2 = mvKeys2[mvMatches12[i].second];
 
-        const float u1 = corres[i].first(0);
-        const float v1 = corres[i].first(1);
-        const float u2 = corres[i].second(0);
-        const float v2 = corres[i].second(1);
+        //const float u1 = corres[i].first(0);
+       // const float v1 = corres[i].first(1);
+       // const float u2 = corres[i].second(0);
+       // const float v2 = corres[i].second(1);
         //ll.push_back(cv::Point2f(corres[i].first(0), corres[i].first(1)));//取点的x,y坐标push进vector中
        // rr.push_back(cv::Point2f(corres[i].second(0), corres[i].second(1)));
+        //应该是用像素坐标，而不是归一化坐标
+        Vector3d P1=(corres[i].first(0),corres[i].first(1),corres[i].first(2));
+        Vector3d P2=(corres[i].second(0),corres[i].second(1),corres[i].second(2));
+        Vector3d p1=K*P1;//相机坐标系转像素坐标系
+        Vector3d p2=k*P2;
+
+        const float u1 =p1.x;//像素坐标
+        const float v1 =p1.y;
+        const float u2 =p2.x;
+        const float v2 =p2.y;
 
 
         // Reprojection error in first image
@@ -331,7 +357,7 @@ float InitialEXRotation::CheckHomography(double &score, cv::Mat &H, float sigma)
         const float chiSquare1 = squareDist1*invSigmaSquare;
 
         if(chiSquare1>th)
-            bIn = false;
+            score=0;
         else
             score += th - chiSquare1;
 
@@ -347,7 +373,7 @@ float InitialEXRotation::CheckHomography(double &score, cv::Mat &H, float sigma)
         const float chiSquare2 = squareDist2*invSigmaSquare;
 
         if(chiSquare2>th)
-            bIn = false;
+            score=0;
         else
             score += th - chiSquare2;
 
