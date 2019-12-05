@@ -107,7 +107,49 @@ Matrix3d InitialEXRotation::solveRelativeR(const vector<pair<Vector3d, Vector3d>
         {
             //选择用H矩阵来恢复R,t
 
-           DecomposeH(H);
+           decomposeH(H);//求解出的旋转和平移放在vector<cv::Mat>类型中，vR,vt，共8组
+           //找出最合适的R,t
+            int bestGood = 0;
+            int secondBestGood = 0;
+            int bestSolutionIdx = -1;
+            float bestParallax = -1;
+            vector<cv::Point3f> bestP3D;
+            vector<bool> bestTriangulated;
+
+            // Instead of applying the visibility constraints proposed in the Faugeras' paper (which could fail for points seen with low parallax)
+            // We reconstruct all hypotheses and check in terms of triangulated points and parallax
+            for(size_t i=0; i<8; i++)
+            {
+                float parallaxi;
+                vector<cv::Point3f> vP3Di;
+                vector<bool> vbTriangulatedi;
+                cv::Mat K=(Mat_<double>(3,3)<<461.6,0,363.0,0,460.3,248.1,0,0,1);
+                int nGood = CheckRT(vR[i],vt[i],mvKeys1,mvKeys2,mvMatches12,vbMatchesInliers,K,vP3Di, 4.0*mSigma2, vbTriangulatedi, parallaxi);
+
+                if(nGood>bestGood)
+                {
+                    secondBestGood = bestGood;
+                    bestGood = nGood;
+                    bestSolutionIdx = i;
+                    bestParallax = parallaxi;
+                    bestP3D = vP3Di;
+                    bestTriangulated = vbTriangulatedi;
+                }
+                else if(nGood>secondBestGood)
+                {
+                    secondBestGood = nGood;
+                }
+            }
+
+
+            if(secondBestGood<0.75*bestGood && bestParallax>=minParallax && bestGood>minTriangulated && bestGood>0.9*N)
+            {
+                vR[bestSolutionIdx].copyTo(R21);
+                vt[bestSolutionIdx].copyTo(t21);
+                vP3D = bestP3D;
+                vbTriangulated = bestTriangulated;
+
+            }
 
         }
         else
@@ -388,7 +430,224 @@ float InitialEXRotation::CheckHomography(cv::Mat &H, float sigma)
 
 }
 
-void InitialEXRotation::DecomposeH(cv::Mat& H)
+void InitialEXRotation::decomposeH(cv::Mat& H)
 {
+    cv::Mat K=(Mat_<double>(3,3)<<461.6,0,363.0,0,460.3,248.1,0,0,1);
+    cv::Mat invK = K.inv();
+    cv::Mat A = invK*H*K;
 
+    cv::Mat U,w,Vt,V;
+    cv::SVD::compute(A,w,U,Vt,cv::SVD::FULL_UV);
+    V=Vt.t();
+
+    float s = cv::determinant(U)*cv::determinant(Vt);
+
+    float d1 = w.at<float>(0);
+    float d2 = w.at<float>(1);
+    float d3 = w.at<float>(2);
+
+    if(d1/d2<1.00001 || d2/d3<1.00001)
+    {
+        return false;
+    }
+
+    vector<cv::Mat> vR, vt, vn;
+    vR.reserve(8);
+    vt.reserve(8);
+    vn.reserve(8);
+
+    //n'=[x1 0 x3] 4 posibilities e1=e3=1, e1=1 e3=-1, e1=-1 e3=1, e1=e3=-1
+    float aux1 = sqrt((d1*d1-d2*d2)/(d1*d1-d3*d3));
+    float aux3 = sqrt((d2*d2-d3*d3)/(d1*d1-d3*d3));
+    float x1[] = {aux1,aux1,-aux1,-aux1};
+    float x3[] = {aux3,-aux3,aux3,-aux3};
+
+    //case d'=d2
+    float aux_stheta = sqrt((d1*d1-d2*d2)*(d2*d2-d3*d3))/((d1+d3)*d2);
+
+    float ctheta = (d2*d2+d1*d3)/((d1+d3)*d2);
+    float stheta[] = {aux_stheta, -aux_stheta, -aux_stheta, aux_stheta};
+
+    for(int i=0; i<4; i++)
+    {
+        cv::Mat Rp=cv::Mat::eye(3,3,CV_32F);
+        Rp.at<float>(0,0)=ctheta;
+        Rp.at<float>(0,2)=-stheta[i];
+        Rp.at<float>(2,0)=stheta[i];
+        Rp.at<float>(2,2)=ctheta;
+
+        cv::Mat R = s*U*Rp*Vt;
+        vR.push_back(R);
+
+        cv::Mat tp(3,1,CV_32F);
+        tp.at<float>(0)=x1[i];
+        tp.at<float>(1)=0;
+        tp.at<float>(2)=-x3[i];
+        tp*=d1-d3;
+
+        cv::Mat t = U*tp;
+        vt.push_back(t/cv::norm(t));
+
+        cv::Mat np(3,1,CV_32F);
+        np.at<float>(0)=x1[i];
+        np.at<float>(1)=0;
+        np.at<float>(2)=x3[i];
+
+        cv::Mat n = V*np;
+        if(n.at<float>(2)<0)
+            n=-n;
+        vn.push_back(n);
+    }
+
+    //case d'=-d2
+    float aux_sphi = sqrt((d1*d1-d2*d2)*(d2*d2-d3*d3))/((d1-d3)*d2);
+
+    float cphi = (d1*d3-d2*d2)/((d1-d3)*d2);
+    float sphi[] = {aux_sphi, -aux_sphi, -aux_sphi, aux_sphi};
+
+    for(int i=0; i<4; i++)
+    {
+        cv::Mat Rp=cv::Mat::eye(3,3,CV_32F);
+        Rp.at<float>(0,0)=cphi;
+        Rp.at<float>(0,2)=sphi[i];
+        Rp.at<float>(1,1)=-1;
+        Rp.at<float>(2,0)=sphi[i];
+        Rp.at<float>(2,2)=-cphi;
+
+        cv::Mat R = s*U*Rp*Vt;
+        vR.push_back(R);
+
+        cv::Mat tp(3,1,CV_32F);
+        tp.at<float>(0)=x1[i];
+        tp.at<float>(1)=0;
+        tp.at<float>(2)=x3[i];
+        tp*=d1+d3;
+
+        cv::Mat t = U*tp;
+        vt.push_back(t/cv::norm(t));
+
+        cv::Mat np(3,1,CV_32F);
+        np.at<float>(0)=x1[i];
+        np.at<float>(1)=0;
+        np.at<float>(2)=x3[i];
+
+        cv::Mat n = V*np;
+        if(n.at<float>(2)<0)
+            n=-n;
+        vn.push_back(n);
+    }
+
+
+}
+int InitialEXRotation::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::KeyPoint> &vKeys1, const vector<cv::KeyPoint> &vKeys2,
+                         const vector<Match> &vMatches12, vector<bool> &vbMatchesInliers,
+                         const cv::Mat &K, vector<cv::Point3f> &vP3D, float th2, vector<bool> &vbGood, float &parallax)
+{
+    // Calibration parameters
+    const float fx = K.at<float>(0,0);
+    const float fy = K.at<float>(1,1);
+    const float cx = K.at<float>(0,2);
+    const float cy = K.at<float>(1,2);
+
+    vbGood = vector<bool>(corres.size(),false);//上面传递的传corres进来
+    //vP3D.resize(vKeys1.size());
+
+    //vector<float> vCosParallax;
+   // vCosParallax.reserve(vKeys1.size());
+
+    // Camera 1 Projection Matrix K[I|0]
+    cv::Mat P1(3,4,CV_32F,cv::Scalar(0));
+    K.copyTo(P1.rowRange(0,3).colRange(0,3));
+
+    cv::Mat O1 = cv::Mat::zeros(3,1,CV_32F);
+
+    // Camera 2 Projection Matrix K[R|t]
+    cv::Mat P2(3,4,CV_32F);
+    R.copyTo(P2.rowRange(0,3).colRange(0,3));
+    t.copyTo(P2.rowRange(0,3).col(3));
+    P2 = K*P2;
+
+    cv::Mat O2 = -R.t()*t;
+
+    int nGood=0;
+
+    for(size_t i=0, iend=int(corres.size());i<iend;i++)
+    {
+       // if(!vbMatchesInliers[i])
+        //    continue;
+
+       // const cv::KeyPoint &kp1 = vKeys1[vMatches12[i].first];
+       // const cv::KeyPoint &kp2 = vKeys2[vMatches12[i].second];
+        cv::Mat p3dC1;
+        //把keypoint换位corres的ll和rr
+
+        Triangulate(kp1,kp2,P1,P2,p3dC1);
+        //testTriangulation(ll, rr, R1, t1) 这两函数功能应该是相似的，统一一下，用一个吧
+
+        if(!isfinite(p3dC1.at<float>(0)) || !isfinite(p3dC1.at<float>(1)) || !isfinite(p3dC1.at<float>(2)))
+        {
+            vbGood[vMatches12[i].first]=false;
+            continue;
+        }
+
+        // Check parallax
+        cv::Mat normal1 = p3dC1 - O1;
+        float dist1 = cv::norm(normal1);
+
+        cv::Mat normal2 = p3dC1 - O2;
+        float dist2 = cv::norm(normal2);
+
+        float cosParallax = normal1.dot(normal2)/(dist1*dist2);
+
+        // Check depth in front of first camera (only if enough parallax, as "infinite" points can easily go to negative depth)
+        if(p3dC1.at<float>(2)<=0 && cosParallax<0.99998)
+            continue;
+
+        // Check depth in front of second camera (only if enough parallax, as "infinite" points can easily go to negative depth)
+        cv::Mat p3dC2 = R*p3dC1+t;
+
+        if(p3dC2.at<float>(2)<=0 && cosParallax<0.99998)
+            continue;
+
+        // Check reprojection error in first image
+        float im1x, im1y;
+        float invZ1 = 1.0/p3dC1.at<float>(2);
+        im1x = fx*p3dC1.at<float>(0)*invZ1+cx;
+        im1y = fy*p3dC1.at<float>(1)*invZ1+cy;
+
+        float squareError1 = (im1x-kp1.pt.x)*(im1x-kp1.pt.x)+(im1y-kp1.pt.y)*(im1y-kp1.pt.y);
+
+        if(squareError1>th2)
+            continue;
+
+        // Check reprojection error in second image
+        float im2x, im2y;
+        float invZ2 = 1.0/p3dC2.at<float>(2);
+        im2x = fx*p3dC2.at<float>(0)*invZ2+cx;
+        im2y = fy*p3dC2.at<float>(1)*invZ2+cy;
+
+        float squareError2 = (im2x-kp2.pt.x)*(im2x-kp2.pt.x)+(im2y-kp2.pt.y)*(im2y-kp2.pt.y);
+
+        if(squareError2>th2)
+            continue;
+
+        vCosParallax.push_back(cosParallax);
+        vP3D[vMatches12[i].first] = cv::Point3f(p3dC1.at<float>(0),p3dC1.at<float>(1),p3dC1.at<float>(2));
+        nGood++;
+
+        if(cosParallax<0.99998)
+            vbGood[vMatches12[i].first]=true;
+    }
+
+    if(nGood>0)
+    {
+        sort(vCosParallax.begin(),vCosParallax.end());
+
+        size_t idx = min(50,int(vCosParallax.size()-1));
+        parallax = acos(vCosParallax[idx])*180/CV_PI;
+    }
+    else
+        parallax=0;
+
+    return nGood;
 }
