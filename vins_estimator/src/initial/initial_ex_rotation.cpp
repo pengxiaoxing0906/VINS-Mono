@@ -79,18 +79,11 @@ Matrix3d InitialEXRotation::solveRelativeR(const vector<pair<Vector3d, Vector3d>
             rr.push_back(cv::Point2f(corres[i].second(0), corres[i].second(1)));
         }
 
-       /*
-        * 目前问题汇总
-        * 1. sigma=1.0，RANSAC最大迭代次数200
-        * 2. corres是谁对谁的旋转 framecount-1,framecount 就是参考帧到当前帧
-        * 3. 如何从H矩阵恢复出R和t
-        *
-        */
-
 
         //【2】求解出本质矩阵和H矩阵并分别计算得分选择合适的模型分解求出旋转和平移
         float SE,SH;
         double sigma=1.0;
+        double sigma2=sigma*sigma;
         Mat K;//相机内参矩阵
         //求解本质矩阵E
         cv::Mat E = cv::findEssentialMat(ll, rr);
@@ -106,50 +99,11 @@ Matrix3d InitialEXRotation::solveRelativeR(const vector<pair<Vector3d, Vector3d>
         if(RH>0.40)
         {
             //选择用H矩阵来恢复R,t
-
            decomposeH(H);//求解出的旋转和平移放在vector<cv::Mat>类型中，vR,vt，共8组
            //找出最合适的R,t
-            int bestGood = 0;
-            int secondBestGood = 0;
-            int bestSolutionIdx = -1;
-            float bestParallax = -1;
-            vector<cv::Point3f> bestP3D;
-            vector<bool> bestTriangulated;
 
-            // Instead of applying the visibility constraints proposed in the Faugeras' paper (which could fail for points seen with low parallax)
-            // We reconstruct all hypotheses and check in terms of triangulated points and parallax
-            for(size_t i=0; i<8; i++)
-            {
-                float parallaxi;
-                vector<cv::Point3f> vP3Di;
-                vector<bool> vbTriangulatedi;
-                cv::Mat K=(Mat_<double>(3,3)<<461.6,0,363.0,0,460.3,248.1,0,0,1);
-                int nGood = CheckRT(vR[i],vt[i],mvKeys1,mvKeys2,mvMatches12,vbMatchesInliers,K,vP3Di, 4.0*mSigma2, vbTriangulatedi, parallaxi);
+            cv::Mat ans_R_cv=findRT(vR,vt,corres);
 
-                if(nGood>bestGood)
-                {
-                    secondBestGood = bestGood;
-                    bestGood = nGood;
-                    bestSolutionIdx = i;
-                    bestParallax = parallaxi;
-                    bestP3D = vP3Di;
-                    bestTriangulated = vbTriangulatedi;
-                }
-                else if(nGood>secondBestGood)
-                {
-                    secondBestGood = nGood;
-                }
-            }
-
-
-            if(secondBestGood<0.75*bestGood && bestParallax>=minParallax && bestGood>minTriangulated && bestGood>0.9*N)
-            {
-                vR[bestSolutionIdx].copyTo(R21);
-                vt[bestSolutionIdx].copyTo(t21);
-                vP3D = bestP3D;
-                vbTriangulated = bestTriangulated;
-
-            }
 
         }
         else
@@ -228,7 +182,7 @@ void InitialEXRotation::decomposeE(cv::Mat E,
 }
  float InitialEXRotation::CheckEssential(cv::Mat E,float sigma)
  {
-    // const int N = mvMatches12.size();
+
     //输入K或者传入K矩阵
      cv::Mat K=(Mat_<double>(3,3)<<461.6,0,363.0,0,460.3,248.1,0,0,1);
     cv::Mat Kinv=K.inv();
@@ -244,7 +198,7 @@ void InitialEXRotation::decomposeE(cv::Mat E,
      const float f32 = F.at<float>(2,1);
      const float f33 = F.at<float>(2,2);
 
-     //vbMatchesInliers.resize(N);
+
 
      float score = 0;
 
@@ -256,15 +210,7 @@ void InitialEXRotation::decomposeE(cv::Mat E,
      //corres是vector3d 没有归一化
      for(int i=0; i< int(corres.size()); i++)
      {
-         //bool bIn = true;
 
-         //const cv::KeyPoint &kp1 = mvKeys1[mvMatches12[i].first];
-         //const cv::KeyPoint &kp2 = mvKeys2[mvMatches12[i].second];
-
-         //const float u1 = kp1.pt.x;
-         //const float v1 = kp1.pt.y;
-         //const float u2 = kp2.pt.x;
-         //const float v2 = kp2.pt.y;
 
          //应该是用像素坐标，而不是归一化坐标
          Vector3d P1=(corres[i].first(0),corres[i].first(1),corres[i].first(2));
@@ -312,7 +258,7 @@ void InitialEXRotation::decomposeE(cv::Mat E,
 
          if(chiSquare2>th)
          {
-            // bIn = false;
+
              score=0;
 
          }
@@ -320,10 +266,6 @@ void InitialEXRotation::decomposeE(cv::Mat E,
          else
              score += thScore - chiSquare2;
 
-       //  if(bIn)
-        //     vbMatchesInliers[i]=true;
-        // else
-         //    vbMatchesInliers[i]=false;
      }
 
      return score;
@@ -364,17 +306,7 @@ float InitialEXRotation::CheckHomography(cv::Mat &H, float sigma)
 
     for (int i = 0; i < int(corres.size()); i++)//匹配点对的数量
     {
-       // bool bIn = true;
 
-       // const cv::KeyPoint &kp1 = mvKeys1[mvMatches12[i].first];
-        //const cv::KeyPoint &kp2 = mvKeys2[mvMatches12[i].second];
-
-        //const float u1 = corres[i].first(0);
-       // const float v1 = corres[i].first(1);
-       // const float u2 = corres[i].second(0);
-       // const float v2 = corres[i].second(1);
-        //ll.push_back(cv::Point2f(corres[i].first(0), corres[i].first(1)));//取点的x,y坐标push进vector中
-       // rr.push_back(cv::Point2f(corres[i].second(0), corres[i].second(1)));
         //应该是用像素坐标，而不是归一化坐标
         Vector3d P1=(corres[i].first(0),corres[i].first(1),corres[i].first(2));
         Vector3d P2=(corres[i].second(0),corres[i].second(1),corres[i].second(2));
@@ -419,11 +351,6 @@ float InitialEXRotation::CheckHomography(cv::Mat &H, float sigma)
         else
             score += th - chiSquare2;
 
-       /* if(bIn)
-            vbMatchesInliers[i]=true;
-        else
-            vbMatchesInliers[i]=false;
-            */
     }
 
     return score;
@@ -539,8 +466,60 @@ void InitialEXRotation::decomposeH(cv::Mat& H)
 
 
 }
-int InitialEXRotation::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<cv::KeyPoint> &vKeys1, const vector<cv::KeyPoint> &vKeys2,
-                         const vector<Match> &vMatches12, vector<bool> &vbMatchesInliers,
+
+
+cv::Mat InitialEXRotation::findRT( vector<cv::Mat> vR, vector<cv::Mat> vt,const vector<pair<Vector3d, Vector3d>> &corres )
+{
+    int bestGood = 0;
+    int secondBestGood = 0;
+    int bestSolutionIdx = -1;
+    float bestParallax = -1;
+
+    double sigma=1.0;
+    sigma2=sigma*sigma;
+    cv::Mat K=(Mat_<double>(3,3)<<461.6,0,363.0,0,460.3,248.1,0,0,1);
+
+    vector<cv::Point3f> bestP3D;
+    vector<bool> bestTriangulated;
+
+    // Instead of applying the visibility constraints proposed in the Faugeras' paper (which could fail for points seen with low parallax)
+    // We reconstruct all hypotheses and check in terms of triangulated points and parallax
+    for(size_t i=0; i<8; i++)
+    {
+        float parallaxi;
+        vector<cv::Point3f> vP3Di;
+        vector<bool> vbTriangulatedi;
+        int nGood = CheckRT(vR[i],vt[i],corres,K,vP3Di, 4.0*Sigma2, vbTriangulatedi, parallaxi);
+
+        if(nGood>bestGood)
+        {
+            secondBestGood = bestGood;
+            bestGood = nGood;
+            bestSolutionIdx = i;
+            bestParallax = parallaxi;
+            bestP3D = vP3Di;
+            bestTriangulated = vbTriangulatedi;
+        }
+        else if(nGood>secondBestGood)
+        {
+            secondBestGood = nGood;
+        }
+    }
+
+
+    if(secondBestGood<0.75*bestGood && bestParallax>=minParallax && bestGood>minTriangulated )
+    {
+        vR[bestSolutionIdx].copyTo(R);
+        vt[bestSolutionIdx].copyTo(t);
+        vP3D = bestP3D;
+        vbTriangulated = bestTriangulated;
+
+
+    }
+
+    return R;
+}
+int InitialEXRotation::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<pair<Vector3d, Vector3d>> &corres,
                          const cv::Mat &K, vector<cv::Point3f> &vP3D, float th2, vector<bool> &vbGood, float &parallax)
 {
     // Calibration parameters
@@ -549,11 +528,11 @@ int InitialEXRotation::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<
     const float cx = K.at<float>(0,2);
     const float cy = K.at<float>(1,2);
 
-    vbGood = vector<bool>(corres.size(),false);//上面传递的传corres进来
-    //vP3D.resize(vKeys1.size());
+    vbGood = vector<bool>(corres.size(),false);
+    vP3D.resize(corres.size());
 
-    //vector<float> vCosParallax;
-   // vCosParallax.reserve(vKeys1.size());
+    vector<float> vCosParallax;
+    vCosParallax.reserve(corres.size());
 
     // Camera 1 Projection Matrix K[I|0]
     cv::Mat P1(3,4,CV_32F,cv::Scalar(0));
@@ -571,18 +550,16 @@ int InitialEXRotation::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<
 
     int nGood=0;
 
-    for(size_t i=0, iend=int(corres.size());i<iend;i++)
+
+    for(size_t i=0, iend=corres.size();i<iend;i++)
     {
-       // if(!vbMatchesInliers[i])
-        //    continue;
+        const cv::Point2f ll(corres[i].first(0), corres[i].first(1)));
+        const cv::Point2f rr(corres[i].second(0), corres[i].second(1)));
 
-       // const cv::KeyPoint &kp1 = vKeys1[vMatches12[i].first];
-       // const cv::KeyPoint &kp2 = vKeys2[vMatches12[i].second];
+
         cv::Mat p3dC1;
-        //把keypoint换位corres的ll和rr
 
-        Triangulate(kp1,kp2,P1,P2,p3dC1);
-        //testTriangulation(ll, rr, R1, t1) 这两函数功能应该是相似的，统一一下，用一个吧
+        Triangulate(ll,rr,P1,P2,p3dC1);
 
         if(!isfinite(p3dC1.at<float>(0)) || !isfinite(p3dC1.at<float>(1)) || !isfinite(p3dC1.at<float>(2)))
         {
@@ -651,3 +628,20 @@ int InitialEXRotation::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<
 
     return nGood;
 }
+void InitialEXRotation::Triangulate(const cv::point2f &ll , const cv::point2f &rr, const cv::Mat &P1, const cv::Mat &P2, cv::Mat &x3D)
+{
+    cv::Mat A(4,4,CV_32F);
+
+    A.row(0) = ll.x*P1.row(2)-P1.row(0);
+    A.row(1) = ll.y*P1.row(2)-P1.row(1);
+    A.row(2) = rr.x*P2.row(2)-P2.row(0);
+    A.row(3) = rr.y*P2.row(2)-P2.row(1);
+
+    cv::Mat u,w,vt;
+    cv::SVD::compute(A,w,u,vt,cv::SVD::MODIFY_A| cv::SVD::FULL_UV);
+    x3D = vt.row(3).t();
+    x3D = x3D.rowRange(0,3)/x3D.at<float>(3);
+}
+
+
+
