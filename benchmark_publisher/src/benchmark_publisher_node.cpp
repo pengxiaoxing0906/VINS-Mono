@@ -65,15 +65,15 @@ tf::Transform trans;
 
 void odom_callback(const nav_msgs::OdometryConstPtr &odom_msg)
 {
-    //ROS_INFO("odom callback!");
-    if (odom_msg->header.stamp.toSec() > benchmark.back().t)
+    ROS_INFO("odom callback!");
+    if (odom_msg->header.stamp.toSec() > benchmark.back().t)//back()返回当前vector容器中末尾元素的引用
       return;
   
     for (; idx < static_cast<int>(benchmark.size()) && benchmark[idx].t <= odom_msg->header.stamp.toSec(); idx++)
         ;
 
 
-    if (init++ < SKIP)
+    if (init++ < SKIP)//SKIP=50代表什么
     {
         baseRgt = Quaterniond(odom_msg->pose.pose.orientation.w,
                               odom_msg->pose.pose.orientation.x,
@@ -130,7 +130,7 @@ int main(int argc, char **argv)
     ros::init(argc, argv, "benchmark_publisher");
     ros::NodeHandle n("~");
 
-    string csv_file = readParam<string>(n, "data_name");
+    string csv_file = readParam<string>(n, "data_name");//读取data.csv文件（各个序列的真值）
     std::cout << "load ground truth " << csv_file << std::endl;
     FILE *f = fopen(csv_file.c_str(), "r");
     if (f==NULL)
@@ -145,15 +145,15 @@ int main(int argc, char **argv)
         ROS_WARN("can't load ground truth; no data available");
     }
     while (!feof(f))
-        benchmark.emplace_back(f);
+        benchmark.emplace_back(f);//序列真值都存到benchmark中
     fclose(f);
-    benchmark.pop_back();
+    benchmark.pop_back();//删除vector中的最后一个元素
     ROS_INFO("Data loaded: %d", (int)benchmark.size());
 
-    pub_odom = n.advertise<nav_msgs::Odometry>("odometry", 1000);
+    pub_odom = n.advertise<nav_msgs::Odometry>("odometry", 1000);//发布topic
     pub_path = n.advertise<nav_msgs::Path>("path", 1000);
 
-    ros::Subscriber sub_odom = n.subscribe("estimated_odometry", 1000, odom_callback);
+    ros::Subscriber sub_odom = n.subscribe("estimated_odometry", 1000, odom_callback);//订阅topic
     
     ros::Rate r(20);
     ros::spin();

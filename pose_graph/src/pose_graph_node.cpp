@@ -24,15 +24,15 @@
 #define SKIP_FIRST_CNT 10
 using namespace std;
 
-queue<sensor_msgs::ImageConstPtr> image_buf;
-queue<sensor_msgs::PointCloudConstPtr> point_buf;
-queue<nav_msgs::Odometry::ConstPtr> pose_buf;
+queue<sensor_msgs::ImageConstPtr> image_buf;//原始图像数据
+queue<sensor_msgs::PointCloudConstPtr> point_buf;//世界坐标系下的点云
+queue<nav_msgs::Odometry::ConstPtr> pose_buf;//当前帧的pose
 queue<Eigen::Vector3d> odometry_buf;
 std::mutex m_buf;
 std::mutex m_process;
 int frame_index  = 0;
 int sequence = 1;
-PoseGraph posegraph;
+PoseGraph posegraph;//全局位姿图优化对象
 int skip_first_cnt = 0;
 int SKIP_CNT;
 int skip_cnt = 0;
@@ -161,10 +161,10 @@ void imu_forward_callback(const nav_msgs::Odometry::ConstPtr &forward_msg)
         vio_q.y() = forward_msg->pose.pose.orientation.y;
         vio_q.z() = forward_msg->pose.pose.orientation.z;
 
-        vio_t = posegraph.w_r_vio * vio_t + posegraph.w_t_vio;
+        vio_t = posegraph.w_r_vio * vio_t + posegraph.w_t_vio;//???
         vio_q = posegraph.w_r_vio *  vio_q;
 
-        vio_t = posegraph.r_drift * vio_t + posegraph.t_drift;
+        vio_t = posegraph.r_drift * vio_t + posegraph.t_drift;//??
         vio_q = posegraph.r_drift * vio_q;
 
         Vector3d vio_t_cam;
@@ -293,7 +293,7 @@ void extrinsic_callback(const nav_msgs::Odometry::ConstPtr &pose_msg)
 
 void process()
 {
-    if (!LOOP_CLOSURE)
+    if (!LOOP_CLOSURE)//如果LOOP_CLOSURE为0，即不需要进行回环检测就直接返回
         return;
     while (true)
     {
@@ -301,7 +301,7 @@ void process()
         sensor_msgs::PointCloudConstPtr point_msg = NULL;
         nav_msgs::Odometry::ConstPtr pose_msg = NULL;
 
-        // find out the messages with same time stamp
+        // 得到具有相同时间戳的pose_msg、image_msg、point_msg
         m_buf.lock();
         if(!image_buf.empty() && !point_buf.empty() && !pose_buf.empty())
         {
@@ -318,7 +318,7 @@ void process()
             else if (image_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec() 
                 && point_buf.back()->header.stamp.toSec() >= pose_buf.front()->header.stamp.toSec())
             {
-                pose_msg = pose_buf.front();
+                pose_msg = pose_buf.front();//front()表示队首元素
                 pose_buf.pop();
                 while (!pose_buf.empty())
                     pose_buf.pop();
@@ -335,19 +335,22 @@ void process()
         }
         m_buf.unlock();
 
+        //构建pose_graph中用到的关键帧：
+        //这里用到的策略是先剔除最开始的SKIP_FIRST_CNT帧，然后每隔SKIP_CNT，
+        // 将距上一关键帧距离（平移向量的模）超过SKIP_DIS的图像创建为关键帧
         if (pose_msg != NULL)
         {
             //printf(" pose time %f \n", pose_msg->header.stamp.toSec());
             //printf(" point time %f \n", point_msg->header.stamp.toSec());
             //printf(" image time %f \n", image_msg->header.stamp.toSec());
             // skip fisrt few
-            if (skip_first_cnt < SKIP_FIRST_CNT)
+            if (skip_first_cnt < SKIP_FIRST_CNT)// 剔除最开始的SKIP_FIRST_CNT帧
             {
                 skip_first_cnt++;
                 continue;
             }
 
-            if (skip_cnt < SKIP_CNT)
+            if (skip_cnt < SKIP_CNT) //每隔SKIP_CNT帧进行一次  SKIP_CNT=0
             {
                 skip_cnt++;
                 continue;
@@ -374,7 +377,7 @@ void process()
                 ptr = cv_bridge::toCvCopy(image_msg, sensor_msgs::image_encodings::MONO8);
             
             cv::Mat image = ptr->image;
-            // build keyframe
+            //将距上一关键帧距离（平移向量的模）超过SKIP_DIS的图像创建为关键帧
             Vector3d T = Vector3d(pose_msg->pose.pose.position.x,
                                   pose_msg->pose.pose.position.y,
                                   pose_msg->pose.pose.position.z);
@@ -415,13 +418,14 @@ void process()
                                    point_3d, point_2d_uv, point_2d_normal, point_id, sequence);   
                 m_process.lock();
                 start_flag = 1;
-                posegraph.addKeyFrame(keyframe, 1);
+                posegraph.addKeyFrame(keyframe, 1);//在posegraph中添加关键帧，将flag_detect_loop=1即设置回环检测
                 m_process.unlock();
                 frame_index++;
                 last_t = T;
             }
         }
 
+        //休眠5ms
         std::chrono::milliseconds dura(5);
         std::this_thread::sleep_for(dura);
     }
@@ -429,7 +433,7 @@ void process()
 
 void command()
 {
-    if (!LOOP_CLOSURE)
+    if (!LOOP_CLOSURE)//如果LOOP_CLOSURE为0，即不需要进行回环检测就直接返回
         return;
     while(1)
     {
@@ -453,40 +457,43 @@ void command()
 
 int main(int argc, char **argv)
 {
+    //[1]ROS初始化，设置句柄
     ros::init(argc, argv, "pose_graph");
     ros::NodeHandle n("~");
     posegraph.registerPub(n);
 
-    // read param
-    n.getParam("visualization_shift_x", VISUALIZATION_SHIFT_X);
+    //[2]从launch文件读取参数和参数文件config中的参数 read param  getParam函数有一个布尔类型的返回值，可以通过它来表示是否获取参数成功
+    n.getParam("visualization_shift_x", VISUALIZATION_SHIFT_X);//可视化界面中图像x轴y轴的偏移量，一般设置为0
     n.getParam("visualization_shift_y", VISUALIZATION_SHIFT_Y);
-    n.getParam("skip_cnt", SKIP_CNT);
-    n.getParam("skip_dis", SKIP_DIS);
+    n.getParam("skip_cnt", SKIP_CNT);//运行process()内循环的间隔
+    n.getParam("skip_dis", SKIP_DIS);//为判断是否构建关键帧的距离标准
     std::string config_file;
-    n.getParam("config_file", config_file);
+    n.getParam("config_file", config_file);//获取到的参数输出到config_file
     cv::FileStorage fsSettings(config_file, cv::FileStorage::READ);
     if(!fsSettings.isOpened())
     {
         std::cerr << "ERROR: Wrong path to settings" << std::endl;
     }
 
-    double camera_visual_size = fsSettings["visualize_camera_size"];
+    double camera_visual_size = fsSettings["visualize_camera_size"];//视化界面图像的尺寸 从yaml文件中读取 0.4
     cameraposevisual.setScale(camera_visual_size);
     cameraposevisual.setLineWidth(camera_visual_size / 10.0);
 
 
-    LOOP_CLOSURE = fsSettings["loop_closure"];
+    LOOP_CLOSURE = fsSettings["loop_closure"];//loop_closure=1即进行回环检测
     std::string IMAGE_TOPIC;
     int LOAD_PREVIOUS_POSE_GRAPH;
     if (LOOP_CLOSURE)
     {
         ROW = fsSettings["image_height"];
         COL = fsSettings["image_width"];
+        //[3]读取字典
         std::string pkg_path = ros::package::getPath("pose_graph");
         string vocabulary_file = pkg_path + "/../support_files/brief_k10L6.bin";
         cout << "vocabulary_file" << vocabulary_file << endl;
         posegraph.loadVocabulary(vocabulary_file);
 
+        //读取BRIEF描述子的模板文件
         BRIEF_PATTERN_FILE = pkg_path + "/../support_files/brief_pattern.yml";
         cout << "BRIEF_PATTERN_FILE" << BRIEF_PATTERN_FILE << endl;
         m_camera = camodocal::CameraFactory::instance()->generateCameraFromYamlFile(config_file.c_str());
@@ -508,6 +515,7 @@ int main(int argc, char **argv)
         fout.close();
         fsSettings.release();
 
+        //[4]按需求加载先前位姿图（LOAD_PREVIOUS_POSE_GRAPH=1）
         if (LOAD_PREVIOUS_POSE_GRAPH)
         {
             printf("load pose graph\n");
@@ -526,6 +534,7 @@ int main(int argc, char **argv)
 
     fsSettings.release();
 
+    //[5]订阅各个topic并执行各自回调函数
     ros::Subscriber sub_imu_forward = n.subscribe("/vins_estimator/imu_propagate", 2000, imu_forward_callback);
     ros::Subscriber sub_vio = n.subscribe("/vins_estimator/odometry", 2000, vio_callback);
     ros::Subscriber sub_image = n.subscribe(IMAGE_TOPIC, 2000, image_callback);
@@ -534,12 +543,14 @@ int main(int argc, char **argv)
     ros::Subscriber sub_point = n.subscribe("/vins_estimator/keyframe_point", 2000, point_callback);
     ros::Subscriber sub_relo_relative_pose = n.subscribe("/vins_estimator/relo_relative_pose", 2000, relo_relative_pose_callback);
 
+    //[6]发布/pose_graph的topic
     pub_match_img = n.advertise<sensor_msgs::Image>("match_image", 1000);
     pub_camera_pose_visual = n.advertise<visualization_msgs::MarkerArray>("camera_pose_visual", 1000);
     pub_key_odometrys = n.advertise<visualization_msgs::Marker>("key_odometrys", 1000);
     pub_vio_path = n.advertise<nav_msgs::Path>("no_loop_path", 1000);
     pub_match_points = n.advertise<sensor_msgs::PointCloud>("match_points", 100);
 
+    //[7]设置主线程和键盘控制线程
     std::thread measurement_process;
     std::thread keyboard_command_process;
 

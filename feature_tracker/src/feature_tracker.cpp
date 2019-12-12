@@ -189,9 +189,9 @@ void FeatureTracker::readImage(const cv::Mat &_img, double _cur_time)
             cv::goodFeaturesToTrack(forw_img, n_pts, MAX_CNT - forw_pts.size(), 0.01, MIN_DIST, mask,3,true,0.04);//harris角点检测
             //cv::goodFeaturesToTrack(forw_img, n_pts, MAX_CNT - forw_pts.size(), 0.01, MIN_DIST, mask,3,false);//shi-Tomas角点检测
             //指定亚像素计算迭代标注
-            cv::TermCriteria criteria = cv::TermCriteria(cv::TermCriteria::MAX_ITER + cv::TermCriteria::EPS,40,0.01);
+            //cv::TermCriteria criteria = cv::TermCriteria(cv::TermCriteria::MAX_ITER + cv::TermCriteria::EPS,40,0.01);
             //亚像素检测,目的是优化角点，使角点的精度达到亚像素级别
-            cv::cornerSubPix(forw_img, n_pts, cv::Size(5, 5), cv::Size(-1, -1), criteria);
+           // cv::cornerSubPix(forw_img, n_pts, cv::Size(5, 5), cv::Size(-1, -1), criteria);
         }
         else
             n_pts.clear();//n_pts是用来存储提取的新的特征点的，在这个条件下表示不需要提取新的特征点，将上一帧中提取的点clear掉

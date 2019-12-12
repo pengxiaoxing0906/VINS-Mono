@@ -25,10 +25,7 @@ private:
     void decomposeE(cv::Mat E,
                     cv::Mat_<double> &R1, cv::Mat_<double> &R2,
                     cv::Mat_<double> &t1, cv::Mat_<double> &t2);//从E分解出R,t
-    float CheckEssential(cv::Mat &E,float sigma);//计算F模型得分
-    float CheckHomography(cv::Mat &H,float sigma);//计算H模型得分
 
-    void decomposeH(cv::Mat H);//从H分解出R,t
     int frame_count;
 
     vector< Matrix3d > Rc;

@@ -115,7 +115,7 @@ class AngleLocalParameterization {
 };
 
 template <typename T> 
-void YawPitchRollToRotationMatrix(const T yaw, const T pitch, const T roll, T R[9])
+void YawPitchRollToRotationMatrix(const T yaw, const T pitch, const T roll, T R[9])//欧拉角转换为旋转矩阵
 {
 
 	T y = yaw / T(180.0) * T(M_PI);
@@ -135,7 +135,7 @@ void YawPitchRollToRotationMatrix(const T yaw, const T pitch, const T roll, T R[
 };
 
 template <typename T> 
-void RotationMatrixTranspose(const T R[9], T inv_R[9])
+void RotationMatrixTranspose(const T R[9], T inv_R[9])//矩阵进行转置
 {
 	inv_R[0] = R[0];
 	inv_R[1] = R[3];

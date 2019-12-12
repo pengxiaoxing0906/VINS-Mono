@@ -5,7 +5,7 @@ PoseGraph::PoseGraph()
     posegraph_visualization = new CameraPoseVisualization(1.0, 0.0, 1.0, 1.0);
     posegraph_visualization->setScale(0.1);
     posegraph_visualization->setLineWidth(0.01);
-	t_optimization = std::thread(&PoseGraph::optimize4DoF, this);
+	t_optimization = std::thread(&PoseGraph::optimize4DoF, this);//创建了一个4自由度位姿图优化线程
     earliest_loop_index = -1;
     t_drift = Eigen::Vector3d(0, 0, 0);
     yaw_drift = 0;
@@ -24,7 +24,7 @@ PoseGraph::~PoseGraph()
 	t_optimization.join();
 }
 
-void PoseGraph::registerPub(ros::NodeHandle &n)
+void PoseGraph::registerPub(ros::NodeHandle &n)//发布轨迹path的topic
 {
     pub_pg_path = n.advertise<nav_msgs::Path>("pose_graph_path", 1000);
     pub_base_path = n.advertise<nav_msgs::Path>("base_path", 1000);
@@ -33,13 +33,13 @@ void PoseGraph::registerPub(ros::NodeHandle &n)
         pub_path[i] = n.advertise<nav_msgs::Path>("path_" + to_string(i), 1000);
 }
 
-void PoseGraph::loadVocabulary(std::string voc_path)
+void PoseGraph::loadVocabulary(std::string voc_path)//加载Brief字典
 {
     voc = new BriefVocabulary(voc_path);
     db.setVocabulary(*voc, false, 0);
 }
 
-void PoseGraph::addKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
+void PoseGraph::addKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)//添加关键帧，完成了回环检测与闭环的过程
 {
     //shift to base frame
     Vector3d vio_P_cur;
@@ -55,7 +55,8 @@ void PoseGraph::addKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
         r_drift = Eigen::Matrix3d::Identity();
         m_drift.unlock();
     }
-    
+
+    //获取当前帧的位姿vio_P_cur、vio_R_cur并更新
     cur_kf->getVioPose(vio_P_cur, vio_R_cur);
     vio_P_cur = w_r_vio * vio_P_cur + w_t_vio;
     vio_R_cur = w_r_vio *  vio_R_cur;
@@ -63,43 +64,51 @@ void PoseGraph::addKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
     cur_kf->index = global_index;
     global_index++;
 	int loop_index = -1;
+
+
     if (flag_detect_loop)
     {
         TicToc tmp_t;
-        loop_index = detectLoop(cur_kf, cur_kf->index);
+        loop_index = detectLoop(cur_kf, cur_kf->index);//进行回环检测，返回回环候选帧的索引
     }
     else
     {
         addKeyFrameIntoVoc(cur_kf);
     }
-	if (loop_index != -1)
+	if (loop_index != -1)//如果存在回环候选帧，即loop_index != -1
 	{
         //printf(" %d detect loop with %d \n", cur_kf->index, loop_index);
-        KeyFrame* old_kf = getKeyFrame(loop_index);
+        KeyFrame* old_kf = getKeyFrame(loop_index);//获取回环候选帧
 
-        if (cur_kf->findConnection(old_kf))
+        if (cur_kf->findConnection(old_kf))//当前帧与回环候选帧进行描述子匹配
         {
-            if (earliest_loop_index > loop_index || earliest_loop_index == -1)
+            if (earliest_loop_index > loop_index || earliest_loop_index == -1)//earliest_loop_index为最早的回环候选帧
                 earliest_loop_index = loop_index;
 
+            //计算当前帧与回环帧的相对位姿，纠正当前帧位姿w_P_cur、w_R_cur
             Vector3d w_P_old, w_P_cur, vio_P_cur;
             Matrix3d w_R_old, w_R_cur, vio_R_cur;
             old_kf->getVioPose(w_P_old, w_R_old);
             cur_kf->getVioPose(vio_P_cur, vio_R_cur);
 
+            //获取当前帧与回环帧的相对位姿relative_q、relative_t
             Vector3d relative_t;
             Quaterniond relative_q;
             relative_t = cur_kf->getLoopRelativeT();
             relative_q = (cur_kf->getLoopRelativeQ()).toRotationMatrix();
+
+            //重新计算当前帧位姿w_P_cur、w_R_cur
             w_P_cur = w_R_old * relative_t + w_P_old;
             w_R_cur = w_R_old * relative_q;
+
+            //回环得到的位姿和VIO位姿之间的偏移量shift_r、shift_t
             double shift_yaw;
             Matrix3d shift_r;
             Vector3d shift_t; 
             shift_yaw = Utility::R2ypr(w_R_cur).x() - Utility::R2ypr(vio_R_cur).x();
             shift_r = Utility::ypr2R(Vector3d(shift_yaw, 0, 0));
             shift_t = w_P_cur - w_R_cur * vio_R_cur.transpose() * vio_P_cur; 
-            // shift vio pose of whole sequence to the world frame
+            // 如果存在多个图像序列，则将所有图像序列都合并到世界坐标系下
             if (old_kf->sequence != cur_kf->sequence && sequence_loop[cur_kf->sequence] == 0)
             {  
                 w_r_vio = shift_r;
@@ -122,11 +131,14 @@ void PoseGraph::addKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
                 }
                 sequence_loop[cur_kf->sequence] = 1;
             }
+           //将当前帧放入优化队列中
             m_optimize_buf.lock();
             optimize_buf.push(cur_kf->index);
             m_optimize_buf.unlock();
         }
 	}
+
+	//获取VIO当前帧的位姿P、R，根据偏移量计算得到实际位姿。并进行位姿更新
 	m_keyframelist.lock();
     Vector3d P;
     Matrix3d R;
@@ -134,6 +146,8 @@ void PoseGraph::addKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
     P = r_drift * P + t_drift;
     R = r_drift * R;
     cur_kf->updatePose(P, R);
+
+    //发布path[sequence_cnt]
     Quaterniond Q{R};
     geometry_msgs::PoseStamped pose_stamped;
     pose_stamped.header.stamp = ros::Time(cur_kf->time_stamp);
@@ -148,9 +162,10 @@ void PoseGraph::addKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
     path[sequence_cnt].poses.push_back(pose_stamped);
     path[sequence_cnt].header = pose_stamped.header;
 
+   //保存闭环轨迹到VINS_RESULT_PATH 把v,bg,ba加上！！！！
     if (SAVE_LOOP_PATH)
     {
-        ofstream loop_path_file(VINS_RESULT_PATH, ios::app);
+        ofstream loop_path_file(VINS_RESULT_PATH, ios::app);//这个路径是"/home/pxx/output/vins_result_loop.csv" 写入文件中
         loop_path_file.setf(ios::fixed, ios::floatfield);
         loop_path_file.precision(0);
         loop_path_file << cur_kf->time_stamp * 1e9 << ",";
@@ -204,13 +219,14 @@ void PoseGraph::addKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
     }
     //posegraph_visualization->add_pose(P + Vector3d(VISUALIZATION_SHIFT_X, VISUALIZATION_SHIFT_Y, 0), Q);
 
+    //绘制可视化轨迹中帧间的连线，发布topic：pub_pg_path、pub_path、pub_base_path
 	keyframelist.push_back(cur_kf);
     publish();
 	m_keyframelist.unlock();
 }
 
 
-void PoseGraph::loadKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
+void PoseGraph::loadKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)//载入关键帧
 {
     cur_kf->index = global_index;
     global_index++;
@@ -286,7 +302,7 @@ void PoseGraph::loadKeyFrame(KeyFrame* cur_kf, bool flag_detect_loop)
     m_keyframelist.unlock();
 }
 
-KeyFrame* PoseGraph::getKeyFrame(int index)
+KeyFrame* PoseGraph::getKeyFrame(int index)//返回索引为index的关键帧
 {
 //    unique_lock<mutex> lock(m_keyframelist);
     list<KeyFrame*>::iterator it = keyframelist.begin();
@@ -301,7 +317,7 @@ KeyFrame* PoseGraph::getKeyFrame(int index)
         return NULL;
 }
 
-int PoseGraph::detectLoop(KeyFrame* keyframe, int frame_index)
+int PoseGraph::detectLoop(KeyFrame* keyframe, int frame_index)//回环检测
 {
     // put image into image_pool; for visualization
     cv::Mat compressed_image;
@@ -316,12 +332,12 @@ int PoseGraph::detectLoop(KeyFrame* keyframe, int frame_index)
     //first query; then add this frame into database!
     QueryResults ret;
     TicToc t_query;
-    db.query(keyframe->brief_descriptors, ret, 4, frame_index - 50);
+    db.query(keyframe->brief_descriptors, ret, 4, frame_index - 50);//查询字典数据库，得到与每一帧的相似度评分ret
     //printf("query time: %f", t_query.toc());
     //cout << "Searching for Image " << frame_index << ". " << ret << endl;
 
     TicToc t_add;
-    db.add(keyframe->brief_descriptors);
+    db.add(keyframe->brief_descriptors);//添加当前关键帧到字典数据库中
     //printf("add feature time: %f", t_add.toc());
     // ret[0] is the nearest neighbour's score. threshold change with neighour score
     bool find_loop = false;
@@ -349,7 +365,7 @@ int PoseGraph::detectLoop(KeyFrame* keyframe, int frame_index)
         for (unsigned int i = 1; i < ret.size(); i++)
         {
             //if (ret[i].Score > ret[0].Score * 0.3)
-            if (ret[i].Score > 0.015)
+            if (ret[i].Score > 0.015)//通过相似度评分判断是否存在回环候选帧
             {          
                 find_loop = true;
                 int tmp_index = ret[i].Id;
@@ -370,6 +386,8 @@ int PoseGraph::detectLoop(KeyFrame* keyframe, int frame_index)
         cv::waitKey(20);
     }
 */
+//如果在先前检测到回环候选帧再判断：当前帧的索引值是否大于50，即系统开始的前50帧不进行回环；
+//返回评分大于0.015的最早的关键帧索引min_index，如果不存在回环或判断失败则返回-1
     if (find_loop && frame_index > 50)
     {
         int min_index = -1;
@@ -385,7 +403,7 @@ int PoseGraph::detectLoop(KeyFrame* keyframe, int frame_index)
 
 }
 
-void PoseGraph::addKeyFrameIntoVoc(KeyFrame* keyframe)
+void PoseGraph::addKeyFrameIntoVoc(KeyFrame* keyframe)//将当前帧的描述子存入字典数据库
 {
     // put image into image_pool; for visualization
     cv::Mat compressed_image;
@@ -400,7 +418,7 @@ void PoseGraph::addKeyFrameIntoVoc(KeyFrame* keyframe)
     db.add(keyframe->brief_descriptors);
 }
 
-void PoseGraph::optimize4DoF()
+void PoseGraph::optimize4DoF()//四自由度位姿图优化函数
 {
     while(true)
     {
@@ -578,7 +596,7 @@ void PoseGraph::optimize4DoF()
     }
 }
 
-void PoseGraph::updatePath()
+void PoseGraph::updatePath()//更新轨迹并发布
 {
     m_keyframelist.lock();
     list<KeyFrame*>::iterator it;
@@ -694,12 +712,12 @@ void PoseGraph::updatePath()
 }
 
 
-void PoseGraph::savePoseGraph()
+void PoseGraph::savePoseGraph()//保存位姿图到file_path
 {
     m_keyframelist.lock();
     TicToc tmp_t;
     FILE *pFile;
-    printf("pose graph path: %s\n",POSE_GRAPH_SAVE_PATH.c_str());
+    printf("pose graph path: %s\n",POSE_GRAPH_SAVE_PATH.c_str());//"home/pxx/output"
     printf("pose graph saving... \n");
     string file_path = POSE_GRAPH_SAVE_PATH + "pose_graph.txt";
     pFile = fopen (file_path.c_str(),"w");
@@ -749,7 +767,7 @@ void PoseGraph::savePoseGraph()
     printf("save pose graph time: %f s\n", tmp_t.toc() / 1000);
     m_keyframelist.unlock();
 }
-void PoseGraph::loadPoseGraph()
+void PoseGraph::loadPoseGraph()//从file_path读取位姿图
 {
     TicToc tmp_t;
     FILE * pFile;
@@ -869,7 +887,7 @@ void PoseGraph::loadPoseGraph()
     base_sequence = 0;
 }
 
-void PoseGraph::publish()
+void PoseGraph::publish()//用于发布topic：pub_pg_path、pub_path、pub_base_path
 {
     for (int i = 1; i <= sequence_cnt; i++)
     {
@@ -886,7 +904,7 @@ void PoseGraph::publish()
     //posegraph_visualization->publish_by(pub_pose_graph, path[sequence_cnt].header);
 }
 
-void PoseGraph::updateKeyFrameLoop(int index, Eigen::Matrix<double, 8, 1 > &_loop_info)
+void PoseGraph::updateKeyFrameLoop(int index, Eigen::Matrix<double, 8, 1 > &_loop_info)//更新关键帧的回环信息
 {
     KeyFrame* kf = getKeyFrame(index);
     kf->updateLoop(_loop_info);

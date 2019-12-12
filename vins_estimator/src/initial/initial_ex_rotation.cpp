@@ -80,52 +80,23 @@ Matrix3d InitialEXRotation::solveRelativeR(const vector<pair<Vector3d, Vector3d>
         }
 
 
-        //【2】求解出本质矩阵和H矩阵并分别计算得分选择合适的模型分解求出旋转和平移
-        float SE,SH;
-        double sigma=1.0;
-        double sigma2=sigma*sigma;
-        Mat K;//相机内参矩阵
-        //求解本质矩阵E
+
         cv::Mat E = cv::findEssentialMat(ll, rr);
-        //计算SE的函数
-        float SE=CheckEssential(E,sigma);
 
-        //求解单应矩阵H
-        cv::Mat H=cv::findHomography(ll,rr,RANSAC,3,noArray(),200,0.99);//200代表RANSAC的最大迭代次数，0.99代表可信度
-        //计算SH分数
-        float SH=CheckHomography(H,sigma);
+        //选择用基础矩阵E来恢复R,t
+        cv::Mat_<double> R1, R2, t1, t2;
+        decomposeE(E, R1, R2, t1, t2);
 
-        float RH = SH/(SH+SF);//定义ratio
-        if(RH>0.40)
+        if (determinant(R1) + 1.0 < 1e-09)
         {
-            //选择用H矩阵来恢复R,t
-           decomposeH(H);//求解出的旋转和平移放在vector<cv::Mat>类型中，vR,vt，共8组
-           //找出最合适的R,t
-
-            cv::Mat ans_R_cv=findRT(vR,vt,corres);
-
-
-        }
-        else
-        {
-            //选择用基础矩阵E来恢复R,t
-            cv::Mat_<double> R1, R2, t1, t2;
-            decomposeE(E, R1, R2, t1, t2);
-
-            if (determinant(R1) + 1.0 < 1e-09)
-            {
                 E = -E;
                 decomposeE(E,R1,R2,t1,t2);
-            }
-
-            //选出更合适的旋转矩阵
-            double ratio1 = max(testTriangulation(ll, rr, R1, t1), testTriangulation(ll, rr, R1, t2));
-            double ratio2 = max(testTriangulation(ll, rr, R2, t1), testTriangulation(ll, rr, R2, t2));
-            cv::Mat_<double> ans_R_cv = ratio1 > ratio2 ? R1 : R2;
-
-
         }
 
+            //选出更合适的旋转矩阵
+        double ratio1 = max(testTriangulation(ll, rr, R1, t1), testTriangulation(ll, rr, R1, t2));
+        double ratio2 = max(testTriangulation(ll, rr, R2, t1), testTriangulation(ll, rr, R2, t2));
+        cv::Mat_<double> ans_R_cv = ratio1 > ratio2 ? R1 : R2;
 
         //【5】之前求的是参考帧到当前帧的变换，求转置等于求逆，即是当前帧到参考帧的变换
         Matrix3d ans_R_eigen;
@@ -180,97 +151,13 @@ void InitialEXRotation::decomposeE(cv::Mat E,
     t1 = svd.u.col(2);
     t2 = -svd.u.col(2);
 }
- float InitialEXRotation::CheckEssential(cv::Mat E,float sigma)
- {
-
-    //输入K或者传入K矩阵
-     cv::Mat K=(Mat_<double>(3,3)<<461.6,0,363.0,0,460.3,248.1,0,0,1);
-    cv::Mat Kinv=K.inv();
-    cv::Mat F=Kinv.transpose()*E*Kinv;
-
-     const float f11 = F.at<float>(0,0);
-     const float f12 = F.at<float>(0,1);
-     const float f13 = F.at<float>(0,2);
-     const float f21 = F.at<float>(1,0);
-     const float f22 = F.at<float>(1,1);
-     const float f23 = F.at<float>(1,2);
-     const float f31 = F.at<float>(2,0);
-     const float f32 = F.at<float>(2,1);
-     const float f33 = F.at<float>(2,2);
 
 
 
-     float score = 0;
-
-     const float th = 3.841;
-     const float thScore = 5.991;
-
-     const float invSigmaSquare = 1.0/(sigma*sigma);
-
-     //corres是vector3d 没有归一化
-     for(int i=0; i< int(corres.size()); i++)
-     {
 
 
-         //应该是用像素坐标，而不是归一化坐标
-         Vector3d P1=(corres[i].first(0),corres[i].first(1),corres[i].first(2));
-         Vector3d P2=(corres[i].second(0),corres[i].second(1),corres[i].second(2));
-         Vector3d p1=K*P1;//相机坐标系转像素坐标系
-         Vector3d p2=k*P2;
 
-         const float u1 =p1.x;//像素坐标
-         const float v1 =p1.y;
-         const float u2 =p2.x;
-         const float v2 =p2.y;
-
-         // Reprojection error in second image
-         // l2=F21x1=(a2,b2,c2)
-
-         const float a2 = f11*u1+f12*v1+f13;
-         const float b2 = f21*u1+f22*v1+f23;
-         const float c2 = f31*u1+f32*v1+f33;
-
-         const float num2 = a2*u2+b2*v2+c2;//理论上这个值应该为0，点(u2,v2,1)到极线a2*x+b2*y+c2=0的距离 不理解
-
-         const float squareDist1 = num2*num2/(a2*a2+b2*b2);
-
-         const float chiSquare1 = squareDist1*invSigmaSquare;
-
-         if(chiSquare1>th) {
-            // bIn = false;
-             score = 0
-         }
-         else
-             score += thScore - chiSquare1;
-
-         // Reprojection error in first image
-         // l1 =x2tF21=(a1,b1,c1)
-
-         const float a1 = f11*u2+f21*v2+f31;
-         const float b1 = f12*u2+f22*v2+f32;
-         const float c1 = f13*u2+f23*v2+f33;
-
-         const float num1 = a1*u1+b1*v1+c1;
-
-         const float squareDist2 = num1*num1/(a1*a1+b1*b1);
-
-         const float chiSquare2 = squareDist2*invSigmaSquare;
-
-         if(chiSquare2>th)
-         {
-
-             score=0;
-
-         }
-
-         else
-             score += thScore - chiSquare2;
-
-     }
-
-     return score;
-
- }
+/*
 float InitialEXRotation::CheckHomography(cv::Mat &H, float sigma)
 {
     cv::Mat Hinv;
@@ -546,15 +433,9 @@ int InitialEXRotation::CheckRT(const cv::Mat &R, const cv::Mat &t, const vector<
     t.copyTo(P2.rowRange(0,3).col(3));
     P2 = K*P2;
 
-    cv::Mat O2 = -R.t()*t;
-
-    int nGood=0;
 
 
-    for(size_t i=0, iend=corres.size();i<iend;i++)
-    {
-        const cv::Point2f ll(corres[i].first(0), corres[i].first(1)));
-        const cv::Point2f rr(corres[i].second(0), corres[i].second(1)));
+
 
 
         cv::Mat p3dC1;
@@ -642,6 +523,7 @@ void InitialEXRotation::Triangulate(const cv::point2f &ll , const cv::point2f &r
     x3D = vt.row(3).t();
     x3D = x3D.rowRange(0,3)/x3D.at<float>(3);
 }
+ */
 
 
 
