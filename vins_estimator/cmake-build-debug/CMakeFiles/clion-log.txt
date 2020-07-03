@@ -1,6 +1,6 @@
-/home/pxx/Downloads/clion-2018.2.3/bin/cmake/linux/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "CodeBlocks - Unix Makefiles" /home/pxx/VINS-Mono/vins_estimator
--- The C compiler identification is GNU 5.4.0
--- The CXX compiler identification is GNU 5.4.0
+/home/pxx/software/CLion-2019.1.4/clion-2019.1.4/bin/cmake/linux/bin/cmake -DCMAKE_BUILD_TYPE=Debug -G "CodeBlocks - Unix Makefiles" /home/pxx/Desktop/VINS-Mono(注释版）/vins_estimator
+-- The C compiler identification is GNU 7.4.0
+-- The CXX compiler identification is GNU 7.4.0
 -- Check for working C compiler: /usr/bin/cc
 -- Check for working C compiler: /usr/bin/cc -- works
 -- Detecting C compiler ABI info
@@ -31,4 +31,4 @@ CMake Error at CMakeLists.txt:9 (find_package):
 
 
 -- Configuring incomplete, errors occurred!
-See also "/home/pxx/VINS-Mono/vins_estimator/cmake-build-debug/CMakeFiles/CMakeOutput.log".
+See also "/home/pxx/Desktop/VINS-Mono(注释版）/vins_estimator/cmake-build-debug/CMakeFiles/CMakeOutput.log".
